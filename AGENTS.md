@@ -100,3 +100,38 @@ All core types are defined in `src/types/index.ts`. Key exports:
   - `suffix_elementId`: Appends `_<sanitizedElementId>` to colliding names
   - `fail`: Throws `CollisionError` with descriptive message
 - Uses `DEFAULT_CONFIG.collision` when no config provided
+
+## Database Layer
+
+### DatabaseConnection (src/db/connection.ts)
+- `DatabaseConnection` class wraps neo4j-driver with retry logic
+- `connect()` - Initialize and verify connectivity
+- `executeQuery<T>(cypher, params)` - Execute Cypher query with automatic retry
+- `isConnected()` - Check connection status
+- `close()` - Close connection
+
+### Factory Functions
+- `createConnection(options)` - Create connection instance (not connected)
+- `connect(options)` - Create and connect in one call
+
+### Connection Options
+```typescript
+interface ConnectionOptions {
+  uri: string;           // e.g., 'neo4j://localhost:7687'
+  username?: string;
+  password?: string;
+  maxRetries?: number;   // default: 3
+  retryDelayMs?: number; // default: 1000
+  connectionTimeoutMs?: number; // default: 30000
+  debug?: boolean;       // default: false
+}
+```
+
+### Value Transformation
+- Neo4j Integer → JavaScript number
+- Neo4j Node → `{ elementId, labels, properties }`
+- Neo4j Relationship → `{ elementId, type, startNodeElementId, endNodeElementId, properties }`
+
+### Error Mapping
+- `ServiceUnavailable` / connection errors → `POSIX_ERRORS.ENOENT`
+- Other database errors → `POSIX_ERRORS.EIO`

@@ -91,3 +91,21 @@
 
 ### Blockers/Notes
 - None - typecheck passes
+
+## Task 006: Implement Neo4j connection pool
+- **Status:** Completed
+- **PRD Reference:** Section 12.5 (Implementation Stack)
+
+### Key Decisions
+- Created `DatabaseConnection` class wrapping neo4j-driver
+- Neo4j driver handles connection pooling internally (configured maxConnectionPoolSize: 50)
+- Implemented retry logic with exponential backoff (default 3 retries)
+- `executeQuery()` returns transformed records (Neo4j integers → JS numbers, Nodes/Relationships → plain objects)
+- Connection errors mapped to POSIX codes: ServiceUnavailable → ENOENT, others → EIO
+- Added `connect()` and `createConnection()` factory functions
+
+### Files Changed
+- src/db/connection.ts: New DatabaseConnection class with retry logic and value transformation
+
+### Blockers/Notes
+- None - typecheck passes
