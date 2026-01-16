@@ -33,7 +33,7 @@ description: |
   - Include @types for FUSE and Neo4j
 parentID: "lpgfs-foundation"
 dependsOn: []
-completed: false
+completed: true
 ---
 id: "task-002"
 title: "Define core TypeScript types"

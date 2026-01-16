@@ -1,14 +1,39 @@
 {
   "name": "lpgfs",
-  "module": "src/index.ts",
+  "version": "0.1.0",
+  "description": "Labeled Property Graph Filesystem - Read-only virtual filesystem presenting graph DB as native filesystem hierarchy",
   "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "lpgfs": "dist/cli/index.js"
+  },
   "scripts": {
-    "tsc": "tsc --noEmit"
+    "build": "tsc",
+    "tsc": "tsc --noEmit",
+    "test": "echo \"No tests configured yet\" && exit 0",
+    "start": "node dist/cli/index.js"
+  },
+  "dependencies": {
+    "neo4j-driver": "^5.27.0",
+    "yaml": "^2.6.1",
+    "lru-cache": "^11.0.2"
+  },
+  "optionalDependencies": {
+    "fuse-native": "^2.2.6"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3"
   },
-  "peerDependencies": {
-    "typescript": "^5"
-  }
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "fuse",
+    "filesystem",
+    "neo4j",
+    "graph-database",
+    "virtual-filesystem"
+  ],
+  "license": "MIT"
 }
