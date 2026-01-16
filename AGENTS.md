@@ -70,3 +70,16 @@ All core types are defined in `src/types/index.ts`. Key exports:
 **Errors:**
 - `POSIX_ERRORS` - Error code constants
 - `LpgfsError` - Custom error class with POSIX code
+
+## Configuration System
+
+### ConfigParser (src/config/parser.ts)
+- `ConfigParser.load(path)` - Load config, throws `LpgfsError` if file missing
+- `ConfigParser.loadOrDefault(path)` - Load config or return `DEFAULT_CONFIG` if missing
+- `ConfigParser.parse(yamlContent)` - Parse YAML string to `ConfigSchema`
+- `ConfigParser.toYaml(config)` - Serialize config back to YAML string
+
+### Config Validation
+- All sections (naming, sanitization, collision) are validated thoroughly
+- User config is merged with defaults, so partial configs are supported
+- `ConfigValidationError` is thrown for invalid config with specific error messages

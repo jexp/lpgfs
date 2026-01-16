@@ -37,3 +37,20 @@
 
 ### Blockers/Notes
 - None - all types defined, typecheck passes
+
+## Task 003: Implement .lpgfs.yaml parser
+- **Status:** Completed
+- **PRD Reference:** Section 5.3 (Naming Configuration)
+
+### Key Decisions
+- Created ConfigParser class with static methods for flexibility (no instantiation needed)
+- Implemented both `load()` (throws if file missing) and `loadOrDefault()` (returns defaults if missing)
+- Validation is thorough with specific error messages for each config section
+- User config is merged with defaults, allowing partial config files
+- Added `toYaml()` method for serializing config back to YAML (useful for /.lpgfs.yaml endpoint)
+
+### Files Changed
+- src/config/parser.ts: New ConfigParser class with load, parse, validate, and toYaml methods
+
+### Blockers/Notes
+- None - typecheck passes, implementation complete

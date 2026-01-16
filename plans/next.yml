@@ -90,7 +90,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-002"
-completed: false
+completed: true
 ---
 id: "task-004"
 title: "Implement filename sanitization"
