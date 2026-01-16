@@ -2,6 +2,9 @@
   "name": "lpgfs",
   "module": "src/index.ts",
   "type": "module",
+  "scripts": {
+    "tsc": "tsc --noEmit"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
