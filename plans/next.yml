@@ -59,7 +59,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-001"
-completed: false
+completed: true
 ---
 # Configuration System
 

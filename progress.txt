@@ -19,3 +19,21 @@
 ### Blockers/Notes
 - fuse-native requires FUSE libraries installed on target system (libfuse-dev on Linux, macFUSE on macOS)
 - Native compilation needs C compiler and node-gyp build tools
+
+## Task 002: Define core TypeScript types
+- **Status:** Completed
+- **PRD Reference:** Sections 5.3 (Naming Configuration), 12.3 (Path Resolution), 12.4 (Caching), 12.7 (Mount Options), 12.8 (Error Handling)
+
+### Key Decisions
+- Defined PathContext with all fields from section 12.3, plus isConfigFile for /.lpgfs.yaml
+- ConfigSchema supports naming overrides per-label and per-relationship-type
+- Added DEFAULT_CONFIG and DEFAULT_CACHE_TTL constants for convenience
+- Included query result types (NodeQueryResult, RelationshipQueryResult) for DB layer
+- Added POSIX error codes as constants with LpgfsError class
+- PropertyValue type supports recursive structures (objects/arrays)
+
+### Files Changed
+- src/types/index.ts: Complete type definitions (PathContext, ConfigSchema, DatabaseNode, DatabaseRelationship, CacheEntry, MountOptions, etc.)
+
+### Blockers/Notes
+- None - all types defined, typecheck passes
