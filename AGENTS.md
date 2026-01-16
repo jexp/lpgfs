@@ -138,3 +138,14 @@ interface ConnectionOptions {
 
 ### Query Functions (src/db/queries.ts)
 - `getLabels(db)` - Get all node labels: `CALL db.labels() YIELD label RETURN label`
+- `getNodesByLabel(db, label, config?)` - Get all nodes of a label with display names
+  - Respects naming config (elementId vs property strategy)
+  - Applies collision handling automatically
+  - Returns `NodeQueryResult[]` with name, elementId, properties
+  - Uses backticks to safely escape label names in Cypher: `MATCH (n:\`Label\`)`
+
+### Naming Strategy Logic
+- Check for per-label override in `config.naming.overrides.nodes[label]`
+- If override exists, use 'property' strategy with specified property
+- Otherwise, use `config.naming.default` strategy
+- If property naming is used but property is missing, fall back to elementId

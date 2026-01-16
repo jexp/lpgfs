@@ -125,3 +125,22 @@
 
 ### Blockers/Notes
 - None - typecheck passes
+
+## Task 008: Implement query: list nodes by label
+- **Status:** Completed
+- **PRD Reference:** Section 5.3 (Naming Strategy), Section 12.2 (Query Mapping)
+
+### Key Decisions
+- Created `getNodesByLabel(db, label, config)` function in src/db/queries.ts
+- Uses Cypher: `MATCH (n:\`Label\`) RETURN elementId(n), properties(n)` (backticks escape label name)
+- Returns `NodeQueryResult[]` with name, elementId, and properties
+- Supports naming strategies: 'elementId' (default) or 'property' (via per-label override)
+- Missing property falls back to sanitized elementId for robustness
+- Integrates with `resolveCollisions()` for collision handling
+- Added helper functions `getNamingStrategy()` and `getPropertyName()` for config lookup
+
+### Files Changed
+- src/db/queries.ts: Added getNodesByLabel() function with imports for types, sanitize, and collision modules
+
+### Blockers/Notes
+- None - typecheck passes

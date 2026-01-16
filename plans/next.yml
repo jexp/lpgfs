@@ -227,7 +227,7 @@ parentID: "lpgfs-foundation"
 dependsOn:
   - "task-007"
   - "task-005"
-completed: false
+completed: true
 ---
 id: "task-009"
 title: "Implement query: get node properties"
