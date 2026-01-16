@@ -70,3 +70,4 @@ If the task is complete, print "Task #<nr> complete"
 
 - ONLY WORK ON A SINGLE TASK. THEN STOP.
 - If there are no tasks left with `completed: false`, exit with `<promise>COMPLETE</promise>`
+- Add unit tests where it makes sense.
