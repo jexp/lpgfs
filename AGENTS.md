@@ -90,3 +90,13 @@ All core types are defined in `src/types/index.ts`. Key exports:
 - `isValidFilename(name)` - Validate a sanitized filename
 - Empty/null/undefined values return `_empty_` placeholder
 - Uses `DEFAULT_CONFIG.sanitization` when no config provided
+
+### Collision Handling (src/config/collision.ts)
+- `CollisionResolver` class tracks used names per context (label/reltype)
+- `resolver.resolve(baseName, elementId)` - Resolve name with collision handling
+- `resolveCollisions(items, context, config?)` - Batch resolve names
+- `createCollisionResolver(context, config?)` - Factory for incremental resolution
+- Strategies:
+  - `suffix_elementId`: Appends `_<sanitizedElementId>` to colliding names
+  - `fail`: Throws `CollisionError` with descriptive message
+- Uses `DEFAULT_CONFIG.collision` when no config provided

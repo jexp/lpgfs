@@ -73,3 +73,21 @@
 
 ### Blockers/Notes
 - None - typecheck passes
+
+## Task 005: Implement collision handling
+- **Status:** Completed
+- **PRD Reference:** Section 5.3 (Collision Handling)
+
+### Key Decisions
+- Created `CollisionResolver` class to track used names per context (label/reltype)
+- Implements `suffix_elementId` strategy: appends `_<sanitizedElementId>` to colliding names
+- Implements `fail` strategy: throws `CollisionError` with descriptive message
+- Uses `sanitizeElementId()` from sanitize.ts to handle Neo4j elementId format
+- Added `resolveCollisions()` convenience function for batch processing
+- Added `createCollisionResolver()` factory for incremental resolution
+
+### Files Changed
+- src/config/collision.ts: New file with CollisionResolver class, CollisionError, and helper functions
+
+### Blockers/Notes
+- None - typecheck passes
