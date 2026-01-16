@@ -144,3 +144,22 @@
 
 ### Blockers/Notes
 - None - typecheck passes
+
+## Task 009: Implement query: get node properties
+- **Status:** Completed
+- **PRD Reference:** Section 5.1 (Node Properties), Section 12.2 (Query Mapping)
+
+### Key Decisions
+- Created `getNodeProperties(db, label, name, config)` function in src/db/queries.ts
+- Reuses `getNodesByLabel()` to find node by display name - ensures consistent naming logic
+- Returns `NodePropertiesResult` interface: `{ _elementId: string, [key: string]: PropertyValue }`
+- Supports both naming strategies (elementId and property) transparently
+- Returns `null` if node not found
+- Added `NodePropertiesResult` interface for type-safe return
+
+### Files Changed
+- src/db/queries.ts: Added getNodeProperties() function and NodePropertiesResult interface
+
+### Blockers/Notes
+- None - typecheck passes
+- Note: Uses O(n) search over all nodes for label; caching (task-014) will optimize this

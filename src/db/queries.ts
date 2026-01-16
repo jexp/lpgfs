@@ -11,6 +11,7 @@ import {
   NamingStrategy,
   NodeQueryResult,
   Properties,
+  PropertyValue,
 } from '../types/index.js';
 import { sanitize, sanitizeElementId } from '../config/sanitize.js';
 import { resolveCollisions } from '../config/collision.js';
@@ -134,4 +135,65 @@ export async function getNodesByLabel(
     elementId: item.elementId,
     properties: item.properties,
   }));
+}
+
+/**
+ * Result from getNodeProperties: node properties with _elementId included.
+ */
+export interface NodePropertiesResult {
+  /** The database element ID, prefixed with underscore as per PRD */
+  _elementId: string;
+  /** All other properties spread into the result */
+  [key: string]: PropertyValue;
+}
+
+/**
+ * Get a single node's properties by its display name.
+ *
+ * Supports both naming strategies (elementId and property) by using
+ * the same naming logic as getNodesByLabel to find the matching node.
+ *
+ * @param db Database connection
+ * @param label The node label
+ * @param name The display name (filesystem directory name) to look up
+ * @param config Configuration schema for naming
+ * @returns Node properties with _elementId, or null if not found
+ *
+ * @example
+ * // With default config (elementId naming)
+ * const props = await getNodeProperties(db, 'Person', '4_abc123_0');
+ * // Returns: { _elementId: '4:abc123:0', username: 'alice', age: 30 }
+ *
+ * @example
+ * // With property naming
+ * const props = await getNodeProperties(db, 'Person', 'alice');
+ * // Returns: { _elementId: '4:abc123:0', username: 'alice', age: 30 }
+ *
+ * @example
+ * // Not found
+ * const props = await getNodeProperties(db, 'Person', 'nonexistent');
+ * // Returns: null
+ */
+export async function getNodeProperties(
+  db: DatabaseConnection,
+  label: string,
+  name: string,
+  config: ConfigSchema = DEFAULT_CONFIG
+): Promise<NodePropertiesResult | null> {
+  // Get all nodes for this label with their display names
+  // This ensures consistent naming logic (sanitization, collision handling)
+  const nodes = await getNodesByLabel(db, label, config);
+
+  // Find the node with matching display name
+  const node = nodes.find((n) => n.name === name);
+
+  if (!node) {
+    return null;
+  }
+
+  // Return properties with _elementId as per PRD section 5.1
+  return {
+    _elementId: node.elementId,
+    ...node.properties,
+  };
 }

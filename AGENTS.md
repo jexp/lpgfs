@@ -149,3 +149,11 @@ interface ConnectionOptions {
 - If override exists, use 'property' strategy with specified property
 - Otherwise, use `config.naming.default` strategy
 - If property naming is used but property is missing, fall back to elementId
+
+### Node Properties Lookup (src/db/queries.ts)
+- `getNodeProperties(db, label, name, config?)` - Get single node properties by display name
+  - Returns `NodePropertiesResult` with `_elementId` plus all properties
+  - Returns `null` if node not found
+  - Reuses `getNodesByLabel()` for consistent naming logic
+  - Handles both naming strategies (elementId and property) transparently
+  - O(n) lookup will be optimized by caching in task-014

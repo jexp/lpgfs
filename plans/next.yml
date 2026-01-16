@@ -253,7 +253,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-008"
-completed: false
+completed: true
 ---
 id: "task-010"
 title: "Implement query: list relationship types for node"
