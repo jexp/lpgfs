@@ -117,7 +117,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-003"
-completed: false
+completed: true
 ---
 id: "task-005"
 title: "Implement collision handling"

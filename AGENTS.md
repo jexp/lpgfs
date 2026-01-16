@@ -83,3 +83,10 @@ All core types are defined in `src/types/index.ts`. Key exports:
 - All sections (naming, sanitization, collision) are validated thoroughly
 - User config is merged with defaults, so partial configs are supported
 - `ConfigValidationError` is thrown for invalid config with specific error messages
+
+### Filename Sanitization (src/config/sanitize.ts)
+- `sanitize(value, config?)` - Sanitize any `PropertyValue` for use as filename
+- `sanitizeElementId(id, config?)` - Helper for Neo4j elementIds (contain colons)
+- `isValidFilename(name)` - Validate a sanitized filename
+- Empty/null/undefined values return `_empty_` placeholder
+- Uses `DEFAULT_CONFIG.sanitization` when no config provided

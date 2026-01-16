@@ -54,3 +54,22 @@
 
 ### Blockers/Notes
 - None - typecheck passes, implementation complete
+
+## Task 004: Implement filename sanitization
+- **Status:** Completed
+- **PRD Reference:** Section 8.4 (Property Value Sanitization)
+
+### Key Decisions
+- sanitize() function accepts PropertyValue and optional SanitizationConfig
+- Uses DEFAULT_CONFIG.sanitization when no config provided
+- Handles null/undefined/empty values with '_empty_' placeholder
+- Arrays and objects are JSON-stringified (fallback for complex values)
+- Trims leading/trailing dots and whitespace
+- Added sanitizeElementId() helper for Neo4j elementIds (contain colons)
+- Added isValidFilename() validation function
+
+### Files Changed
+- src/config/sanitize.ts: New file with sanitize(), sanitizeElementId(), isValidFilename()
+
+### Blockers/Notes
+- None - typecheck passes
