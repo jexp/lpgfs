@@ -199,7 +199,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-006"
-completed: false
+completed: true
 ---
 id: "task-008"
 title: "Implement query: list nodes by label"

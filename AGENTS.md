@@ -135,3 +135,6 @@ interface ConnectionOptions {
 ### Error Mapping
 - `ServiceUnavailable` / connection errors → `POSIX_ERRORS.ENOENT`
 - Other database errors → `POSIX_ERRORS.EIO`
+
+### Query Functions (src/db/queries.ts)
+- `getLabels(db)` - Get all node labels: `CALL db.labels() YIELD label RETURN label`

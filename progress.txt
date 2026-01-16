@@ -109,3 +109,19 @@
 
 ### Blockers/Notes
 - None - typecheck passes
+
+## Task 007: Implement query: list all labels
+- **Status:** Completed
+- **PRD Reference:** Section 12.2 (Query Mapping)
+
+### Key Decisions
+- Created `getLabels(db)` function in src/db/queries.ts
+- Uses Cypher: `CALL db.labels() YIELD label RETURN label`
+- Returns string[] (empty array for empty database)
+- Takes DatabaseConnection as parameter for dependency injection
+
+### Files Changed
+- src/db/queries.ts: New file with getLabels() query function
+
+### Blockers/Notes
+- None - typecheck passes
