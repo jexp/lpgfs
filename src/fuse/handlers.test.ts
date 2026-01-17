@@ -28,10 +28,27 @@ interface MockNode {
   properties: Record<string, unknown>;
 }
 
+/**
+ * Mock relationship data for testing direction directory
+ */
+interface MockRelationship {
+  relElementId: string;
+  relProperties: Record<string, unknown>;
+  targetElementId: string;
+  targetLabels: string[];
+  targetProperties: Record<string, unknown>;
+}
+
+/**
+ * Key format for relationships: `${sourceElementId}:${relType}:${direction}`
+ */
+type RelationshipKey = string;
+
 function createMockDbWithNodes(
   labels: string[],
   nodesByLabel: Record<string, MockNode[]> = {},
-  relTypesByElementId: Record<string, string[]> = {}
+  relTypesByElementId: Record<string, string[]> = {},
+  relationshipsByKey: Record<RelationshipKey, MockRelationship[]> = {}
 ): DatabaseConnection {
   return {
     executeQuery: vi.fn().mockImplementation((query: string, params?: Record<string, unknown>) => {
@@ -43,7 +60,7 @@ function createMockDbWithNodes(
       }
       // Handle nodes by label query
       const labelMatch = query.match(/MATCH \(n:`(\w+)`\)/);
-      if (labelMatch && !query.includes('-[r]-')) {
+      if (labelMatch && !query.includes('-[r]-') && !query.includes('-[r:') && !query.includes('<-[r:')) {
         const label = labelMatch[1];
         const nodes = nodesByLabel[label!] || [];
         return Promise.resolve({
@@ -59,6 +76,26 @@ function createMockDbWithNodes(
         const relTypes = relTypesByElementId[elementId] || [];
         return Promise.resolve({
           records: relTypes.map((relType) => ({ relType })),
+        });
+      }
+      // Handle relationships query (OUT direction)
+      const outMatch = query.match(/MATCH \(n\)-\[r:`(\w+)`\]->\(m\)/);
+      if (outMatch && params?.elementId) {
+        const relType = outMatch[1];
+        const key = `${params.elementId}:${relType}:OUT`;
+        const rels = relationshipsByKey[key] || [];
+        return Promise.resolve({
+          records: rels,
+        });
+      }
+      // Handle relationships query (IN direction)
+      const inMatch = query.match(/MATCH \(n\)<-\[r:`(\w+)`\]-\(m\)/);
+      if (inMatch && params?.elementId) {
+        const relType = inMatch[1];
+        const key = `${params.elementId}:${relType}:IN`;
+        const rels = relationshipsByKey[key] || [];
+        return Promise.resolve({
+          records: rels,
         });
       }
       return Promise.resolve({ records: [] });
@@ -540,6 +577,313 @@ describe('readdir', () => {
 
       expect(entries).toHaveLength(2);
       expect(entries.map((e) => e.name).sort()).toEqual(['IN', 'OUT']);
+    });
+  });
+
+  describe('direction directory (/Label/nodeName/RELTYPE/OUT or IN)', () => {
+    it('returns symlinks and property files for relationships', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+            { elementId: '4:abc:1', properties: { username: 'james' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {
+          '4:abc:0:KNOWS:OUT': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: { since: 2020 },
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+          ],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      const entries = await readdir('/Person/4_abc_0/KNOWS/OUT', ctx);
+
+      // Should have symlink + property file
+      expect(entries).toHaveLength(2);
+
+      const symlink = entries.find((e) => e.type === 'symlink');
+      expect(symlink?.name).toBe('4_abc_1'); // Default naming uses elementId
+
+      const file = entries.find((e) => e.type === 'file');
+      expect(file?.name).toBe('.4_abc_1.json');
+    });
+
+    it('returns empty array when no relationships exist', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {} // No relationships
+      );
+      ctx = createHandlerContext(db);
+
+      const entries = await readdir('/Person/4_abc_0/KNOWS/OUT', ctx);
+
+      expect(entries).toHaveLength(0);
+    });
+
+    it('handles multiple relationships to different targets', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+            { elementId: '4:abc:1', properties: { username: 'james' } },
+            { elementId: '4:abc:2', properties: { username: 'bob' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {
+          '4:abc:0:KNOWS:OUT': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: {},
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+            {
+              relElementId: '5:abc:1',
+              relProperties: {},
+              targetElementId: '4:abc:2',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'bob' },
+            },
+          ],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      const entries = await readdir('/Person/4_abc_0/KNOWS/OUT', ctx);
+
+      // Should have 2 symlinks + 2 property files = 4 entries
+      expect(entries).toHaveLength(4);
+
+      const symlinks = entries.filter((e) => e.type === 'symlink');
+      expect(symlinks).toHaveLength(2);
+      expect(symlinks.map((s) => s.name).sort()).toEqual(['4_abc_1', '4_abc_2']);
+
+      const files = entries.filter((e) => e.type === 'file');
+      expect(files).toHaveLength(2);
+      expect(files.map((f) => f.name).sort()).toEqual(['.4_abc_1.json', '.4_abc_2.json']);
+    });
+
+    it('handles multiple relationships to same target with suffixes (section 8.1)', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+            { elementId: '4:abc:1', properties: { username: 'james' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {
+          '4:abc:0:KNOWS:OUT': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: { context: 'work' },
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+            {
+              relElementId: '5:abc:1',
+              relProperties: { context: 'school' },
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+          ],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      const entries = await readdir('/Person/4_abc_0/KNOWS/OUT', ctx);
+
+      // Should have 2 symlinks + 2 property files = 4 entries
+      expect(entries).toHaveLength(4);
+
+      const symlinks = entries.filter((e) => e.type === 'symlink');
+      expect(symlinks).toHaveLength(2);
+      // First uses base name, second gets _1 suffix
+      expect(symlinks.map((s) => s.name)).toEqual(['4_abc_1', '4_abc_1_1']);
+
+      const files = entries.filter((e) => e.type === 'file');
+      expect(files).toHaveLength(2);
+      expect(files.map((f) => f.name)).toEqual(['.4_abc_1.json', '.4_abc_1_1.json']);
+    });
+
+    it('works with property naming strategy', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+            { elementId: '4:abc:1', properties: { username: 'james' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {
+          '4:abc:0:KNOWS:OUT': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: { since: 2020 },
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+          ],
+        }
+      );
+      const config = {
+        ...DEFAULT_CONFIG,
+        naming: {
+          default: 'property' as const,
+          overrides: {
+            nodes: {
+              Person: { property: 'username' },
+            },
+          },
+        },
+      };
+      ctx = createHandlerContext(db, { config });
+
+      const entries = await readdir('/Person/alice/KNOWS/OUT', ctx);
+
+      // Should use property naming for target
+      expect(entries).toHaveLength(2);
+
+      const symlink = entries.find((e) => e.type === 'symlink');
+      expect(symlink?.name).toBe('james');
+
+      const file = entries.find((e) => e.type === 'file');
+      expect(file?.name).toBe('.james.json');
+    });
+
+    it('handles IN direction correctly', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+            { elementId: '4:abc:1', properties: { username: 'james' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {
+          '4:abc:0:KNOWS:IN': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: {},
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+          ],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      const entries = await readdir('/Person/4_abc_0/KNOWS/IN', ctx);
+
+      expect(entries).toHaveLength(2);
+
+      const symlink = entries.find((e) => e.type === 'symlink');
+      expect(symlink?.name).toBe('4_abc_1');
+    });
+
+    it('handles trailing slash', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+            { elementId: '4:abc:1', properties: { username: 'james' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {
+          '4:abc:0:KNOWS:OUT': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: {},
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+          ],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      const entries = await readdir('/Person/4_abc_0/KNOWS/OUT/', ctx);
+
+      expect(entries).toHaveLength(2);
+    });
+
+    it('handles cross-label relationships', async () => {
+      const db = createMockDbWithNodes(
+        ['Person', 'Company'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+          ],
+          Company: [
+            { elementId: '4:xyz:0', properties: { name: 'Acme' } },
+          ],
+        },
+        {
+          '4:abc:0': ['WORKS_AT'],
+        },
+        {
+          '4:abc:0:WORKS_AT:OUT': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: { role: 'Engineer' },
+              targetElementId: '4:xyz:0',
+              targetLabels: ['Company'],
+              targetProperties: { name: 'Acme' },
+            },
+          ],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      const entries = await readdir('/Person/4_abc_0/WORKS_AT/OUT', ctx);
+
+      expect(entries).toHaveLength(2);
+
+      const symlink = entries.find((e) => e.type === 'symlink');
+      // Should use elementId since Company label has no override
+      expect(symlink?.name).toBe('4_xyz_0');
     });
   });
 });

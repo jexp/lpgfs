@@ -289,7 +289,16 @@ const labelsCached = await getLabels(db, cache);
   - For root (`/`): Returns labels as directories + `.lpgfs.yaml` file
   - For label (`/Person`): Returns all nodes as directories using `getNodesByLabel()`
   - For node (`/Person/alice`): Returns `.properties.json` file + relationship type directories using `getRelationshipTypes()`
+  - For reltype (`/Person/alice/KNOWS`): Returns `['OUT', 'IN']` as directories (static, no DB query)
+  - For direction (`/Person/alice/KNOWS/OUT`): Returns symlinks to target nodes + `.targetName.json` files using `getRelationships()`
 - `getConfigContent(ctx)` - Get config as YAML string for reading `/.lpgfs.yaml`
+
+### Multiple Relationships to Same Target (Section 8.1)
+When multiple relationships of the same type point to the same target node:
+- First relationship uses the base target name (e.g., `james`)
+- Subsequent relationships get suffix: `james_1`, `james_2`, etc.
+- Property files follow same pattern: `.james.json`, `.james_1.json`, etc.
+- This is tracked in `readdirDirection()` using a count map per target name
 
 ### Usage Example
 ```typescript

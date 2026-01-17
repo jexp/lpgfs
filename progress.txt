@@ -373,3 +373,24 @@
 ### Blockers/Notes
 - None - typecheck and all 63 tests pass
 - Simplest implementation so far - no database queries, just static directory list
+
+## Task 020: Implement FUSE readdir() for direction directory
+- **Status:** Completed
+- **PRD Reference:** Section 5.2.3 (Symlinks), Section 8.1 (Multiple Relationships)
+
+### Key Decisions
+- Added `readdirDirection()` function to handle `/Label/nodeName/RELTYPE/OUT` and `/Label/nodeName/RELTYPE/IN` paths
+- Uses existing `getRelationships()` query to fetch target nodes and relationship data
+- Returns symlinks to target nodes + `.targetName.json` property files for each relationship
+- Handles multiple relationships to same target using suffix pattern: first occurrence uses base name, subsequent get `_1`, `_2`, etc. (per section 8.1)
+- Symlinks returned with `type: 'symlink'`, property files with `type: 'file'`
+- Target naming respects target label's naming configuration (supports cross-label relationships)
+- Added 8 new tests covering: basic symlinks/files, empty results, multiple targets, multiple rels to same target (suffix handling), property naming, IN direction, trailing slash, cross-label relationships
+
+### Files Changed
+- src/fuse/handlers.ts: Added import for `getRelationships` and `Direction`, added case for 'direction' type, added `readdirDirection()` function
+- src/fuse/handlers.test.ts: Extended mock to handle relationship queries, added direction directory test suite with 8 tests
+
+### Blockers/Notes
+- None - typecheck and all 71 tests pass
+- Implementation leverages existing `getRelationships()` query function with full caching support

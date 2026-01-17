@@ -9,8 +9,9 @@ import type { DatabaseConnection } from '../db/connection.js';
 import type { ConfigSchema, DirectoryEntry } from '../types/index.js';
 import { DEFAULT_CONFIG } from '../types/index.js';
 import { Cache } from '../cache/index.js';
-import { getLabels, getNodesByLabel, getRelationshipTypes } from '../db/queries.js';
+import { getLabels, getNodesByLabel, getRelationshipTypes, getRelationships } from '../db/queries.js';
 import { parsePath, CONFIG_FILENAME, PROPERTIES_FILENAME } from '../core/path-parser.js';
+import type { Direction } from '../types/index.js';
 import { ConfigParser } from '../config/parser.js';
 
 /**
@@ -86,6 +87,15 @@ export async function readdir(
 
     case 'reltype':
       return readdirReltype();
+
+    case 'direction':
+      return readdirDirection(
+        pathContext.label!,
+        pathContext.nodeName!,
+        pathContext.relType!,
+        pathContext.direction!,
+        ctx
+      );
 
     default:
       // TODO: Implement other path types in subsequent tasks
@@ -235,6 +245,89 @@ function readdirReltype(): DirectoryEntry[] {
     { name: 'OUT', type: 'directory' },
     { name: 'IN', type: 'directory' },
   ];
+}
+
+/**
+ * Read direction directory contents (OUT or IN).
+ *
+ * Returns symlinks to target nodes and their .targetName.json property files.
+ * When multiple relationships point to the same target, suffixes (_1, _2, etc.)
+ * are added to distinguish them.
+ *
+ * @param label - The source node label (e.g., "Person")
+ * @param nodeName - The source node display name (e.g., "alice")
+ * @param relType - The relationship type (e.g., "KNOWS")
+ * @param direction - The direction: 'OUT' or 'IN'
+ * @param ctx - Handler context
+ * @returns Directory entries with symlinks and property files
+ *
+ * @example
+ * // Alice has one outgoing KNOWS relationship to james
+ * const entries = await readdirDirection('Person', 'alice', 'KNOWS', 'OUT', ctx);
+ * // Returns: [
+ * //   { name: 'james', type: 'symlink' },
+ * //   { name: '.james.json', type: 'file' }
+ * // ]
+ *
+ * @example
+ * // Alice has two outgoing KNOWS relationships to james (different rel instances)
+ * const entries = await readdirDirection('Person', 'alice', 'KNOWS', 'OUT', ctx);
+ * // Returns: [
+ * //   { name: 'james', type: 'symlink' },
+ * //   { name: '.james.json', type: 'file' },
+ * //   { name: 'james_1', type: 'symlink' },
+ * //   { name: '.james_1.json', type: 'file' }
+ * // ]
+ */
+async function readdirDirection(
+  label: string,
+  nodeName: string,
+  relType: string,
+  direction: Direction,
+  ctx: HandlerContext
+): Promise<DirectoryEntry[]> {
+  // Get all relationships of this type and direction from the source node
+  const relationships = await getRelationships(
+    ctx.db,
+    label,
+    nodeName,
+    relType,
+    direction,
+    ctx.config,
+    ctx.cache
+  );
+
+  if (relationships.length === 0) {
+    return [];
+  }
+
+  // Track occurrences of each target name to handle multiple relationships to same target
+  // Per section 8.1: Multiple relationships of the same type to the same target get suffixes (_1, _2, etc.)
+  const targetNameCounts = new Map<string, number>();
+  const entries: DirectoryEntry[] = [];
+
+  for (const rel of relationships) {
+    const baseName = rel.targetName;
+    const count = targetNameCounts.get(baseName) || 0;
+    targetNameCounts.set(baseName, count + 1);
+
+    // First occurrence uses base name, subsequent ones get _1, _2, etc.
+    const displayName = count === 0 ? baseName : `${baseName}_${count}`;
+
+    // Add symlink to target node
+    entries.push({
+      name: displayName,
+      type: 'symlink',
+    });
+
+    // Add relationship properties file (.targetName.json)
+    entries.push({
+      name: `.${displayName}.json`,
+      type: 'file',
+    });
+  }
+
+  return entries;
 }
 
 /**
