@@ -211,3 +211,34 @@ interface ConnectionOptions {
 - lru-cache v11 requires value types to extend `{}` (not `unknown`)
 - Workaround: Use a wrapper type `{ data: unknown }` internally
 - This is transparent to the API consumer
+
+### Cache Integration with Queries (src/db/queries.ts)
+All query functions accept an optional `cache?: Cache` parameter:
+- `getLabels(db, cache?)` - caches labels with key `labels` (TTL 60s)
+- `getNodesByLabel(db, label, config?, cache?)` - caches nodes with key `nodes:Label` (TTL 30s)
+- `getNodeProperties(db, label, name, config?, cache?)` - uses getNodesByLabel's cache internally
+- `getRelationshipTypes(db, label, name, config?, cache?)` - caches with key `reltypes:elementId` (TTL 10s)
+- `getRelationships(db, label, name, relType, direction, config?, cache?)` - caches with key `rels:elementId:relType:direction` (TTL 10s)
+- `getRelationshipProperties(db, relElementId, cache?)` - caches with key `props:elementId` (TTL 10s)
+
+**Cache Pattern:**
+1. Check cache first using appropriate cache key
+2. If cache hit, return cached value immediately
+3. If cache miss, execute database query
+4. Store result in cache (including empty/null results)
+5. Return result
+
+**Usage Example:**
+```typescript
+import { createCache } from './cache/index.js';
+import { getLabels, getNodesByLabel } from './db/queries.js';
+
+const cache = createCache({ debug: true });
+
+// These calls will use caching
+const labels = await getLabels(db, cache);
+const nodes = await getNodesByLabel(db, 'Person', config, cache);
+
+// Second call returns cached result (no DB query)
+const labelsCached = await getLabels(db, cache);
+```

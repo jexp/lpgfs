@@ -2,6 +2,7 @@
  * Database Queries
  *
  * Cypher queries for fetching graph data from Neo4j.
+ * All queries support optional caching to reduce database load.
  */
 
 import type { DatabaseConnection } from './connection.js';
@@ -17,19 +18,41 @@ import {
 } from '../types/index.js';
 import { sanitize, sanitizeElementId } from '../config/sanitize.js';
 import { resolveCollisions } from '../config/collision.js';
+import { Cache, cacheKey } from '../cache/index.js';
 
 /**
  * Get all node labels in the database.
  *
  * @param db Database connection
+ * @param cache Optional cache instance for caching results (TTL: 60s)
  * @returns Array of label names
  */
-export async function getLabels(db: DatabaseConnection): Promise<string[]> {
+export async function getLabels(
+  db: DatabaseConnection,
+  cache?: Cache
+): Promise<string[]> {
+  const key = cacheKey.labels();
+
+  // Check cache first
+  if (cache) {
+    const cached = cache.get<string[]>(key);
+    if (cached !== undefined) {
+      return cached;
+    }
+  }
+
   const result = await db.executeQuery<{ label: string }>(
     'CALL db.labels() YIELD label RETURN label'
   );
 
-  return result.records.map((record) => record.label);
+  const labels = result.records.map((record) => record.label);
+
+  // Store in cache
+  if (cache) {
+    cache.set(key, labels);
+  }
+
+  return labels;
 }
 
 /**
@@ -58,6 +81,7 @@ function getPropertyName(label: string, config: ConfigSchema): string | undefine
  * @param db Database connection
  * @param label The node label to query
  * @param config Configuration schema for naming
+ * @param cache Optional cache instance for caching results (TTL: 30s)
  * @returns Array of nodes with display names
  *
  * @example
@@ -79,8 +103,19 @@ function getPropertyName(label: string, config: ConfigSchema): string | undefine
 export async function getNodesByLabel(
   db: DatabaseConnection,
   label: string,
-  config: ConfigSchema = DEFAULT_CONFIG
+  config: ConfigSchema = DEFAULT_CONFIG,
+  cache?: Cache
 ): Promise<NodeQueryResult[]> {
+  const key = cacheKey.nodes(label);
+
+  // Check cache first
+  if (cache) {
+    const cached = cache.get<NodeQueryResult[]>(key);
+    if (cached !== undefined) {
+      return cached;
+    }
+  }
+
   // Query all nodes with the given label
   // Using backticks to safely escape the label name in Cypher
   const result = await db.executeQuery<{
@@ -92,6 +127,9 @@ export async function getNodesByLabel(
 
   // Handle empty result
   if (result.records.length === 0) {
+    if (cache) {
+      cache.set(key, []);
+    }
     return [];
   }
 
@@ -132,11 +170,18 @@ export async function getNodesByLabel(
   );
 
   // Build final results (arrays have same length, so index is always valid)
-  return items.map((item, index) => ({
+  const nodes = items.map((item, index) => ({
     name: resolvedNames[index]!,
     elementId: item.elementId,
     properties: item.properties,
   }));
+
+  // Store in cache
+  if (cache) {
+    cache.set(key, nodes);
+  }
+
+  return nodes;
 }
 
 /**
@@ -159,6 +204,7 @@ export interface NodePropertiesResult {
  * @param label The node label
  * @param name The display name (filesystem directory name) to look up
  * @param config Configuration schema for naming
+ * @param cache Optional cache instance for caching results (TTL: 10s for props, 30s for nodes)
  * @returns Node properties with _elementId, or null if not found
  *
  * @example
@@ -180,11 +226,13 @@ export async function getNodeProperties(
   db: DatabaseConnection,
   label: string,
   name: string,
-  config: ConfigSchema = DEFAULT_CONFIG
+  config: ConfigSchema = DEFAULT_CONFIG,
+  cache?: Cache
 ): Promise<NodePropertiesResult | null> {
   // Get all nodes for this label with their display names
   // This ensures consistent naming logic (sanitization, collision handling)
-  const nodes = await getNodesByLabel(db, label, config);
+  // The getNodesByLabel call will use its own cache (nodes: TTL 30s)
+  const nodes = await getNodesByLabel(db, label, config, cache);
 
   // Find the node with matching display name
   const node = nodes.find((n) => n.name === name);
@@ -192,6 +240,13 @@ export async function getNodeProperties(
   if (!node) {
     return null;
   }
+
+  // Note: We don't cache individual node properties separately here because:
+  // 1. The nodes list is already cached via getNodesByLabel
+  // 2. Properties are included in the NodeQueryResult
+  // 3. The lookup is O(n) in-memory (fast) after the nodes are cached
+  // If we wanted separate caching for properties, we'd cache by elementId:
+  // cache.set(cacheKey.props(node.elementId), result);
 
   // Return properties with _elementId as per PRD section 5.1
   return {
@@ -209,6 +264,7 @@ export async function getNodeProperties(
  * @param label The node label
  * @param name The display name (filesystem directory name) to look up
  * @param config Configuration schema for naming
+ * @param cache Optional cache instance for caching results (TTL: 10s for reltypes, 30s for nodes)
  * @returns Array of distinct relationship type names, or empty array if node not found or has no relationships
  *
  * @example
@@ -225,15 +281,26 @@ export async function getRelationshipTypes(
   db: DatabaseConnection,
   label: string,
   name: string,
-  config: ConfigSchema = DEFAULT_CONFIG
+  config: ConfigSchema = DEFAULT_CONFIG,
+  cache?: Cache
 ): Promise<string[]> {
   // First, find the node to get its elementId
   // This ensures consistent naming logic with the filesystem
-  const nodes = await getNodesByLabel(db, label, config);
+  // The getNodesByLabel call will use its own cache (nodes: TTL 30s)
+  const nodes = await getNodesByLabel(db, label, config, cache);
   const node = nodes.find((n) => n.name === name);
 
   if (!node) {
     return [];
+  }
+
+  // Check cache for relationship types
+  const key = cacheKey.reltypes(node.elementId);
+  if (cache) {
+    const cached = cache.get<string[]>(key);
+    if (cached !== undefined) {
+      return cached;
+    }
   }
 
   // Query for distinct relationship types connected to this node
@@ -243,7 +310,14 @@ export async function getRelationshipTypes(
     { elementId: node.elementId }
   );
 
-  return result.records.map((record) => record.relType);
+  const relTypes = result.records.map((record) => record.relType);
+
+  // Store in cache
+  if (cache) {
+    cache.set(key, relTypes);
+  }
+
+  return relTypes;
 }
 
 /**
@@ -258,6 +332,7 @@ export async function getRelationshipTypes(
  * @param relType The relationship type (e.g., 'KNOWS', 'WORKS_AT')
  * @param direction The direction: 'OUT' for outgoing, 'IN' for incoming
  * @param config Configuration schema for naming
+ * @param cache Optional cache instance for caching results (TTL: 10s)
  * @returns Array of relationship results with target info, or empty array if node not found
  *
  * @example
@@ -287,14 +362,25 @@ export async function getRelationships(
   name: string,
   relType: string,
   direction: Direction,
-  config: ConfigSchema = DEFAULT_CONFIG
+  config: ConfigSchema = DEFAULT_CONFIG,
+  cache?: Cache
 ): Promise<RelationshipQueryResult[]> {
   // First, find the source node to get its elementId
-  const nodes = await getNodesByLabel(db, label, config);
+  // The getNodesByLabel call will use its own cache (nodes: TTL 30s)
+  const nodes = await getNodesByLabel(db, label, config, cache);
   const sourceNode = nodes.find((n) => n.name === name);
 
   if (!sourceNode) {
     return [];
+  }
+
+  // Check cache for relationships
+  const key = cacheKey.rels(sourceNode.elementId, relType, direction);
+  if (cache) {
+    const cached = cache.get<RelationshipQueryResult[]>(key);
+    if (cached !== undefined) {
+      return cached;
+    }
   }
 
   // Build the Cypher query based on direction
@@ -320,6 +406,9 @@ export async function getRelationships(
   }>(cypher, { elementId: sourceNode.elementId });
 
   if (result.records.length === 0) {
+    if (cache) {
+      cache.set(key, []);
+    }
     return [];
   }
 
@@ -382,6 +471,11 @@ export async function getRelationships(
     }
   }
 
+  // Store in cache
+  if (cache) {
+    cache.set(key, relationships);
+  }
+
   return relationships;
 }
 
@@ -402,6 +496,7 @@ export interface RelationshipPropertiesResult {
  *
  * @param db Database connection
  * @param relElementId The relationship's element ID
+ * @param cache Optional cache instance for caching results (TTL: 10s)
  * @returns Relationship properties with _elementId, or null if not found
  *
  * @example
@@ -416,8 +511,18 @@ export interface RelationshipPropertiesResult {
  */
 export async function getRelationshipProperties(
   db: DatabaseConnection,
-  relElementId: string
+  relElementId: string,
+  cache?: Cache
 ): Promise<RelationshipPropertiesResult | null> {
+  // Check cache first
+  const key = cacheKey.props(relElementId);
+  if (cache) {
+    const cached = cache.get<RelationshipPropertiesResult | null>(key);
+    if (cached !== undefined) {
+      return cached;
+    }
+  }
+
   // Query for the relationship by its elementId
   // The relationship can be in any direction, so we use a generic pattern
   const result = await db.executeQuery<{
@@ -432,14 +537,25 @@ export async function getRelationshipProperties(
 
   // Check if relationship was found
   if (result.records.length === 0) {
+    // Cache the null result too to avoid repeated queries
+    if (cache) {
+      cache.set(key, null);
+    }
     return null;
   }
 
   const record = result.records[0]!;
 
   // Return properties with _elementId as per PRD section 5.2.4
-  return {
+  const props: RelationshipPropertiesResult = {
     _elementId: record.elementId,
     ...record.properties,
   };
+
+  // Store in cache
+  if (cache) {
+    cache.set(key, props);
+  }
+
+  return props;
 }

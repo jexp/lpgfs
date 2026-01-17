@@ -241,3 +241,30 @@
 ### Blockers/Notes
 - None - typecheck passes
 - TTL defaults from DEFAULT_CACHE_TTL: labels=60s, nodes=30s, properties=10s, relationships=10s, symlinks=60s
+
+## Task 014: Integrate cache with database queries
+- **Status:** Completed
+- **PRD Reference:** Section 12.4 (Caching)
+
+### Key Decisions
+- Added optional `cache?: Cache` parameter to all query functions
+- Cache is checked before executing database queries (cache-aside pattern)
+- Results are stored in cache after successful database queries
+- TTL is automatically determined by the cache based on key prefix:
+  - `getLabels()` → labels (60s)
+  - `getNodesByLabel()` → nodes (30s)
+  - `getNodeProperties()` → uses getNodesByLabel cache (30s)
+  - `getRelationshipTypes()` → reltypes (10s)
+  - `getRelationships()` → rels (10s)
+  - `getRelationshipProperties()` → props (10s)
+- Cache parameter is optional - functions work without cache for backward compatibility
+- Empty results are also cached to avoid repeated queries for non-existent data
+- Null results (not found) are cached for relationship properties
+
+### Files Changed
+- src/db/queries.ts: Added optional cache parameter to all query functions with cache check/store logic
+
+### Blockers/Notes
+- None - typecheck passes
+- The cache integration is non-breaking; all functions work without a cache parameter
+- Nested functions (like getNodeProperties calling getNodesByLabel) pass the cache down for consistent caching

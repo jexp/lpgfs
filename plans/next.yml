@@ -391,7 +391,7 @@ parentID: "lpgfs-foundation"
 dependsOn:
   - "task-013"
   - "task-012"
-completed: false
+completed: true
 ---
 # Path Resolution
 
