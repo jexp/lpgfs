@@ -288,6 +288,7 @@ const labelsCached = await getLabels(db, cache);
   - Dispatches based on `PathContext.type` from path parser
   - For root (`/`): Returns labels as directories + `.lpgfs.yaml` file
   - For label (`/Person`): Returns all nodes as directories using `getNodesByLabel()`
+  - For node (`/Person/alice`): Returns `.properties.json` file + relationship type directories using `getRelationshipTypes()`
 - `getConfigContent(ctx)` - Get config as YAML string for reading `/.lpgfs.yaml`
 
 ### Usage Example

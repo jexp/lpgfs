@@ -497,7 +497,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-017"
-completed: false
+completed: true
 ---
 id: "task-019"
 title: "Implement FUSE readdir() for reltype directory"

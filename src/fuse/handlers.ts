@@ -9,8 +9,8 @@ import type { DatabaseConnection } from '../db/connection.js';
 import type { ConfigSchema, DirectoryEntry } from '../types/index.js';
 import { DEFAULT_CONFIG } from '../types/index.js';
 import { Cache } from '../cache/index.js';
-import { getLabels, getNodesByLabel } from '../db/queries.js';
-import { parsePath, CONFIG_FILENAME } from '../core/path-parser.js';
+import { getLabels, getNodesByLabel, getRelationshipTypes } from '../db/queries.js';
+import { parsePath, CONFIG_FILENAME, PROPERTIES_FILENAME } from '../core/path-parser.js';
 import { ConfigParser } from '../config/parser.js';
 
 /**
@@ -80,6 +80,9 @@ export async function readdir(
 
     case 'label':
       return readdirLabel(pathContext.label!, ctx);
+
+    case 'node':
+      return readdirNode(pathContext.label!, pathContext.nodeName!, ctx);
 
     default:
       // TODO: Implement other path types in subsequent tasks
@@ -152,6 +155,60 @@ async function readdirLabel(
     name: node.name,
     type: 'directory' as const,
   }));
+}
+
+/**
+ * Read node directory contents.
+ *
+ * Returns:
+ * - .properties.json file (node properties)
+ * - All relationship type directories for this node
+ *
+ * @param label - The node label (e.g., "Person")
+ * @param nodeName - The node display name (e.g., "alice")
+ * @param ctx - Handler context
+ * @returns Directory entries for the node
+ *
+ * @example
+ * // Node alice has KNOWS and WORKS_AT relationships
+ * const entries = await readdirNode('Person', 'alice', ctx);
+ * // Returns: [
+ * //   { name: '.properties.json', type: 'file' },
+ * //   { name: 'KNOWS', type: 'directory' },
+ * //   { name: 'WORKS_AT', type: 'directory' }
+ * // ]
+ */
+async function readdirNode(
+  label: string,
+  nodeName: string,
+  ctx: HandlerContext
+): Promise<DirectoryEntry[]> {
+  const entries: DirectoryEntry[] = [];
+
+  // Add the properties file
+  entries.push({
+    name: PROPERTIES_FILENAME,
+    type: 'file',
+  });
+
+  // Get all relationship types for this node
+  const relTypes = await getRelationshipTypes(
+    ctx.db,
+    label,
+    nodeName,
+    ctx.config,
+    ctx.cache
+  );
+
+  // Add each relationship type as a directory
+  for (const relType of relTypes) {
+    entries.push({
+      name: relType,
+      type: 'directory',
+    });
+  }
+
+  return entries;
 }
 
 /**

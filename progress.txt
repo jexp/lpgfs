@@ -334,3 +334,23 @@
 ### Blockers/Notes
 - None - typecheck and all 52 tests pass
 - Straightforward implementation leveraging existing query function
+
+## Task 018: Implement FUSE readdir() for node directory
+- **Status:** Completed
+- **PRD Reference:** Section 4.1 (Node Directory Structure)
+
+### Key Decisions
+- Added `readdirNode()` function to handle `/Label/nodeName` paths
+- Returns `.properties.json` file plus all relationship type directories
+- Uses existing `getRelationshipTypes()` query with caching
+- Properties file is always included (even for non-existent nodes, FUSE layer handles ENOENT)
+- Respects naming config when looking up node by display name
+- Added 7 new tests covering: rel types listing, no relationships, trailing slash, property naming, non-existent node, multiple rel types
+
+### Files Changed
+- src/fuse/handlers.ts: Added import for `getRelationshipTypes` and `PROPERTIES_FILENAME`, added case for 'node' type, added `readdirNode()` function
+- src/fuse/handlers.test.ts: Extended mock to handle relationship type queries, added node directory test suite with 7 tests
+
+### Blockers/Notes
+- None - typecheck and all 58 tests pass
+- Implementation follows same pattern as readdirLabel, leveraging existing query function
