@@ -84,6 +84,9 @@ export async function readdir(
     case 'node':
       return readdirNode(pathContext.label!, pathContext.nodeName!, ctx);
 
+    case 'reltype':
+      return readdirReltype();
+
     default:
       // TODO: Implement other path types in subsequent tasks
       throw new Error(`readdir not implemented for path type: ${pathContext.type}`);
@@ -209,6 +212,29 @@ async function readdirNode(
   }
 
   return entries;
+}
+
+/**
+ * Read relationship type directory contents.
+ *
+ * Always returns OUT and IN subdirectories representing
+ * outgoing and incoming relationships of this type.
+ *
+ * @returns Directory entries for OUT and IN
+ *
+ * @example
+ * // /Person/alice/KNOWS/ directory
+ * const entries = readdirReltype();
+ * // Returns: [
+ * //   { name: 'OUT', type: 'directory' },
+ * //   { name: 'IN', type: 'directory' }
+ * // ]
+ */
+function readdirReltype(): DirectoryEntry[] {
+  return [
+    { name: 'OUT', type: 'directory' },
+    { name: 'IN', type: 'directory' },
+  ];
 }
 
 /**

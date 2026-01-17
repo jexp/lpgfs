@@ -520,7 +520,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-018"
-completed: false
+completed: true
 ---
 id: "task-020"
 title: "Implement FUSE readdir() for direction directory"

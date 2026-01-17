@@ -426,6 +426,122 @@ describe('readdir', () => {
       ]);
     });
   });
+
+  describe('reltype directory (/Label/nodeName/RELTYPE)', () => {
+    it('returns OUT and IN directories', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      const entries = await readdir('/Person/4_abc_0/KNOWS', ctx);
+
+      expect(entries).toHaveLength(2);
+      expect(entries.every((e) => e.type === 'directory')).toBe(true);
+      expect(entries.map((e) => e.name).sort()).toEqual(['IN', 'OUT']);
+    });
+
+    it('returns OUT and IN for any relationship type', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+          ],
+        },
+        {
+          '4:abc:0': ['WORKS_AT'],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      const entries = await readdir('/Person/4_abc_0/WORKS_AT', ctx);
+
+      expect(entries).toHaveLength(2);
+      expect(entries.map((e) => e.name).sort()).toEqual(['IN', 'OUT']);
+    });
+
+    it('handles trailing slash', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      const entries = await readdir('/Person/4_abc_0/KNOWS/', ctx);
+
+      expect(entries).toHaveLength(2);
+      expect(entries.map((e) => e.name).sort()).toEqual(['IN', 'OUT']);
+    });
+
+    it('works with property naming strategy', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        }
+      );
+      const config = {
+        ...DEFAULT_CONFIG,
+        naming: {
+          default: 'property' as const,
+          overrides: {
+            nodes: {
+              Person: { property: 'username' },
+            },
+          },
+        },
+      };
+      ctx = createHandlerContext(db, { config });
+
+      // Path uses display name 'alice' instead of elementId
+      const entries = await readdir('/Person/alice/KNOWS', ctx);
+
+      expect(entries).toHaveLength(2);
+      expect(entries.map((e) => e.name).sort()).toEqual(['IN', 'OUT']);
+    });
+
+    it('returns OUT and IN even for non-existent reltype (validation happens elsewhere)', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      // FAKE_REL doesn't exist, but readdir doesn't validate - getattr would
+      const entries = await readdir('/Person/4_abc_0/FAKE_REL', ctx);
+
+      expect(entries).toHaveLength(2);
+      expect(entries.map((e) => e.name).sort()).toEqual(['IN', 'OUT']);
+    });
+  });
 });
 
 describe('getConfigContent', () => {

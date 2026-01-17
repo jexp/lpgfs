@@ -354,3 +354,22 @@
 ### Blockers/Notes
 - None - typecheck and all 58 tests pass
 - Implementation follows same pattern as readdirLabel, leveraging existing query function
+
+## Task 019: Implement FUSE readdir() for reltype directory
+- **Status:** Completed
+- **PRD Reference:** Section 5.2.2 (Direction Structure)
+
+### Key Decisions
+- Added `readdirReltype()` function to handle `/Label/nodeName/RELTYPE` paths
+- Always returns `['OUT', 'IN']` as directories (both directions always available)
+- Function is synchronous (no database query needed - directions are static)
+- Validation of whether the relationship type exists happens in getattr(), not readdir()
+- Added 5 new tests covering: OUT/IN directories, any reltype, trailing slash, property naming, non-existent reltype
+
+### Files Changed
+- src/fuse/handlers.ts: Added case for 'reltype' type, added `readdirReltype()` function
+- src/fuse/handlers.test.ts: Added reltype directory test suite with 5 tests
+
+### Blockers/Notes
+- None - typecheck and all 63 tests pass
+- Simplest implementation so far - no database queries, just static directory list
