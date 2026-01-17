@@ -575,7 +575,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-020"
-completed: false
+completed: true
 ---
 id: "task-022"
 title: "Implement FUSE readlink()"

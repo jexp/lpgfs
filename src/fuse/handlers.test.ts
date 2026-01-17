@@ -3,10 +3,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readdir, createHandlerContext, getConfigContent } from './handlers.js';
+import { readdir, createHandlerContext, getConfigContent, getattr } from './handlers.js';
 import type { HandlerContext } from './handlers.js';
 import type { DatabaseConnection } from '../db/connection.js';
-import { DEFAULT_CONFIG } from '../types/index.js';
+import { DEFAULT_CONFIG, LpgfsError, POSIX_ERRORS } from '../types/index.js';
 import { Cache } from '../cache/index.js';
 import { CONFIG_FILENAME, PROPERTIES_FILENAME } from '../core/path-parser.js';
 
@@ -916,5 +916,353 @@ describe('getConfigContent', () => {
     expect(content).toContain('property');
     expect(content).toContain('Person');
     expect(content).toContain('username');
+  });
+});
+
+describe('getattr', () => {
+  let ctx: HandlerContext;
+
+  describe('root directory (/)', () => {
+    beforeEach(() => {
+      ctx = createHandlerContext(createMockDb(['Person', 'Company']));
+    });
+
+    it('returns directory type for root', async () => {
+      const stat = await getattr('/', ctx);
+
+      expect(stat.type).toBe('directory');
+      expect(stat.mtime).toBeInstanceOf(Date);
+      expect(stat.atime).toBeInstanceOf(Date);
+      expect(stat.ctime).toBeInstanceOf(Date);
+    });
+  });
+
+  describe('label directory (/Label)', () => {
+    beforeEach(() => {
+      ctx = createHandlerContext(createMockDb(['Person', 'Company']));
+    });
+
+    it('returns directory type for existing label', async () => {
+      const stat = await getattr('/Person', ctx);
+
+      expect(stat.type).toBe('directory');
+    });
+
+    it('throws ENOENT for non-existent label', async () => {
+      await expect(getattr('/NonExistent', ctx)).rejects.toThrow(LpgfsError);
+      await expect(getattr('/NonExistent', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+  });
+
+  describe('node directory (/Label/nodeName)', () => {
+    beforeEach(() => {
+      const db = createMockDbWithNodes(['Person'], {
+        Person: [
+          { elementId: '4:abc:0', properties: { username: 'alice' } },
+          { elementId: '4:abc:1', properties: { username: 'bob' } },
+        ],
+      });
+      ctx = createHandlerContext(db);
+    });
+
+    it('returns directory type for existing node', async () => {
+      const stat = await getattr('/Person/4_abc_0', ctx);
+
+      expect(stat.type).toBe('directory');
+    });
+
+    it('throws ENOENT for non-existent node', async () => {
+      await expect(getattr('/Person/nonexistent', ctx)).rejects.toThrow(LpgfsError);
+      await expect(getattr('/Person/nonexistent', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('throws ENOENT for node under non-existent label', async () => {
+      await expect(getattr('/NonExistent/alice', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('works with property naming strategy', async () => {
+      const db = createMockDbWithNodes(['Person'], {
+        Person: [
+          { elementId: '4:abc:0', properties: { username: 'alice' } },
+        ],
+      });
+      const config = {
+        ...DEFAULT_CONFIG,
+        naming: {
+          default: 'property' as const,
+          overrides: {
+            nodes: {
+              Person: { property: 'username' },
+            },
+          },
+        },
+      };
+      ctx = createHandlerContext(db, { config });
+
+      const stat = await getattr('/Person/alice', ctx);
+
+      expect(stat.type).toBe('directory');
+    });
+  });
+
+  describe('reltype directory (/Label/nodeName/RELTYPE)', () => {
+    beforeEach(() => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS', 'WORKS_AT'],
+        }
+      );
+      ctx = createHandlerContext(db);
+    });
+
+    it('returns directory type for existing relationship type', async () => {
+      const stat = await getattr('/Person/4_abc_0/KNOWS', ctx);
+
+      expect(stat.type).toBe('directory');
+    });
+
+    it('throws ENOENT for non-existent relationship type', async () => {
+      await expect(getattr('/Person/4_abc_0/FAKE_REL', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('throws ENOENT for reltype under non-existent node', async () => {
+      await expect(getattr('/Person/nonexistent/KNOWS', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+  });
+
+  describe('direction directory (/Label/nodeName/RELTYPE/OUT or IN)', () => {
+    beforeEach(() => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        }
+      );
+      ctx = createHandlerContext(db);
+    });
+
+    it('returns directory type for OUT direction', async () => {
+      const stat = await getattr('/Person/4_abc_0/KNOWS/OUT', ctx);
+
+      expect(stat.type).toBe('directory');
+    });
+
+    it('returns directory type for IN direction', async () => {
+      const stat = await getattr('/Person/4_abc_0/KNOWS/IN', ctx);
+
+      expect(stat.type).toBe('directory');
+    });
+
+    it('throws ENOENT for invalid direction', async () => {
+      await expect(getattr('/Person/4_abc_0/KNOWS/INVALID', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+  });
+
+  describe('target symlink (/Label/nodeName/RELTYPE/OUT/target)', () => {
+    beforeEach(() => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+            { elementId: '4:abc:1', properties: { username: 'james' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {
+          '4:abc:0:KNOWS:OUT': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: { since: 2020 },
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+          ],
+        }
+      );
+      ctx = createHandlerContext(db);
+    });
+
+    it('returns symlink type for existing target', async () => {
+      const stat = await getattr('/Person/4_abc_0/KNOWS/OUT/4_abc_1', ctx);
+
+      expect(stat.type).toBe('symlink');
+    });
+
+    it('throws ENOENT for non-existent target', async () => {
+      await expect(getattr('/Person/4_abc_0/KNOWS/OUT/nonexistent', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('handles multiple relationships to same target with suffix', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+            { elementId: '4:abc:1', properties: { username: 'james' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {
+          '4:abc:0:KNOWS:OUT': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: { context: 'work' },
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+            {
+              relElementId: '5:abc:1',
+              relProperties: { context: 'school' },
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+          ],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      // First target
+      const stat1 = await getattr('/Person/4_abc_0/KNOWS/OUT/4_abc_1', ctx);
+      expect(stat1.type).toBe('symlink');
+
+      // Second target with suffix
+      const stat2 = await getattr('/Person/4_abc_0/KNOWS/OUT/4_abc_1_1', ctx);
+      expect(stat2.type).toBe('symlink');
+    });
+  });
+
+  describe('properties files', () => {
+    describe('config file (/.lpgfs.yaml)', () => {
+      beforeEach(() => {
+        ctx = createHandlerContext(createMockDb(['Person']));
+      });
+
+      it('returns file type with size for config file', async () => {
+        const stat = await getattr('/.lpgfs.yaml', ctx);
+
+        expect(stat.type).toBe('file');
+        expect(stat.size).toBeGreaterThan(0);
+      });
+    });
+
+    describe('node properties file (.properties.json)', () => {
+      beforeEach(() => {
+        const db = createMockDbWithNodes(['Person'], {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+          ],
+        });
+        ctx = createHandlerContext(db);
+      });
+
+      it('returns file type for existing node properties', async () => {
+        const stat = await getattr('/Person/4_abc_0/.properties.json', ctx);
+
+        expect(stat.type).toBe('file');
+      });
+
+      it('throws ENOENT for properties file of non-existent node', async () => {
+        await expect(getattr('/Person/nonexistent/.properties.json', ctx)).rejects.toMatchObject({
+          code: POSIX_ERRORS.ENOENT,
+        });
+      });
+    });
+
+    describe('relationship properties file (.targetName.json)', () => {
+      beforeEach(() => {
+        const db = createMockDbWithNodes(
+          ['Person'],
+          {
+            Person: [
+              { elementId: '4:abc:0', properties: { username: 'alice' } },
+              { elementId: '4:abc:1', properties: { username: 'james' } },
+            ],
+          },
+          {
+            '4:abc:0': ['KNOWS'],
+          },
+          {
+            '4:abc:0:KNOWS:OUT': [
+              {
+                relElementId: '5:abc:0',
+                relProperties: { since: 2020 },
+                targetElementId: '4:abc:1',
+                targetLabels: ['Person'],
+                targetProperties: { username: 'james' },
+              },
+            ],
+          }
+        );
+        ctx = createHandlerContext(db);
+      });
+
+      it('returns file type for existing relationship properties file', async () => {
+        const stat = await getattr('/Person/4_abc_0/KNOWS/OUT/.4_abc_1.json', ctx);
+
+        expect(stat.type).toBe('file');
+      });
+
+      it('throws ENOENT for non-existent relationship properties file', async () => {
+        await expect(getattr('/Person/4_abc_0/KNOWS/OUT/.nonexistent.json', ctx)).rejects.toMatchObject({
+          code: POSIX_ERRORS.ENOENT,
+        });
+      });
+    });
+  });
+
+  describe('caching', () => {
+    it('caches label lookups', async () => {
+      const db = createMockDbWithNodes(['Person'], {
+        Person: [
+          { elementId: '4:abc:0', properties: { username: 'alice' } },
+        ],
+      });
+      ctx = createHandlerContext(db);
+
+      // First call
+      await getattr('/Person', ctx);
+      // Second call should use cache
+      await getattr('/Person', ctx);
+
+      // Labels query should only be called once (cached)
+      const mockCalls = (db.executeQuery as ReturnType<typeof vi.fn>).mock.calls;
+      const labelsCalls = mockCalls.filter(
+        (call) => typeof call[0] === 'string' && call[0].includes('db.labels()')
+      );
+      expect(labelsCalls).toHaveLength(1);
+    });
   });
 });

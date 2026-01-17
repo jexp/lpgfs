@@ -302,7 +302,7 @@ When multiple relationships of the same type point to the same target node:
 
 ### Usage Example
 ```typescript
-import { createHandlerContext, readdir } from './fuse/handlers.js';
+import { createHandlerContext, readdir, getattr } from './fuse/handlers.js';
 import { connect } from './db/connection.js';
 
 const db = await connect({ uri: 'neo4j://localhost:7687' });
@@ -311,4 +311,29 @@ const ctx = createHandlerContext(db, { debug: true });
 // List root directory
 const entries = await readdir('/', ctx);
 // Returns: [{ name: 'Person', type: 'directory' }, { name: '.lpgfs.yaml', type: 'file' }]
+
+// Stat a file/directory
+const stat = await getattr('/Person', ctx);
+// Returns: { type: 'directory', mtime: Date, atime: Date, ctime: Date }
 ```
+
+### getattr() Operation (src/fuse/handlers.ts)
+- `getattr(path, ctx)` - Get file/directory attributes, returns `StatResult`
+  - Dispatches based on `PathContext.type` from path parser
+  - Returns `{ type, size?, mtime, atime, ctime }`
+  - Validates path hierarchy (label → node → reltype → direction → target)
+  - Throws `LpgfsError` with `POSIX_ERRORS.ENOENT` for invalid paths
+
+**Return types by path type:**
+- `root` → directory
+- `label` → directory (validates label exists in DB)
+- `node` → directory (validates node exists)
+- `reltype` → directory (validates relationship type exists for node)
+- `direction` → directory (validates direction is OUT or IN)
+- `target` → symlink (validates target exists in relationships)
+- `properties` → file (.lpgfs.yaml has actual size, others return size 0)
+
+**Validation pattern:**
+- Helper functions reuse each other for DRY validation
+- `getattrDirection()` calls `getattrReltype()` which validates node and label
+- Uses same suffix logic as `readdirDirection()` for multiple rels to same target

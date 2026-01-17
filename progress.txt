@@ -394,3 +394,33 @@
 ### Blockers/Notes
 - None - typecheck and all 71 tests pass
 - Implementation leverages existing `getRelationships()` query function with full caching support
+
+## Task 021: Implement FUSE getattr()
+- **Status:** Completed
+- **PRD Reference:** Section 12.8 (Error Handling)
+
+### Key Decisions
+- Implemented `getattr()` function that dispatches based on `PathContext.type` from path parser
+- Returns `StatResult` with type, size (for files), and timestamps (mtime, atime, ctime)
+- Path types and their return types:
+  - `root` → directory
+  - `label` → directory (validates label exists in DB)
+  - `node` → directory (validates node exists)
+  - `reltype` → directory (validates relationship type exists for node)
+  - `direction` → directory (validates direction is OUT or IN)
+  - `target` → symlink (validates target exists in relationships)
+  - `properties` → file (handles .lpgfs.yaml, .properties.json, and .targetName.json)
+- Throws `LpgfsError` with `POSIX_ERRORS.ENOENT` for invalid/non-existent paths
+- Validates full path hierarchy (e.g., checking reltype requires valid label and node first)
+- Config file (/.lpgfs.yaml) returns actual size; other files return size 0 (placeholder until read())
+- Handles multiple relationships to same target with suffix pattern (consistent with readdir)
+- Added 22 new tests covering all path types, ENOENT cases, property naming, multiple rels with suffix
+
+### Files Changed
+- src/fuse/handlers.ts: Added `getattr()` function and helper functions (getattrLabel, getattrNode, getattrReltype, getattrDirection, getattrTarget, getattrProperties)
+- src/fuse/handlers.test.ts: Added comprehensive getattr test suite with 22 tests
+
+### Blockers/Notes
+- None - typecheck and all 93 tests pass
+- Helper functions reuse validation logic (getattrDirection calls getattrReltype, etc.) for DRY code
+- Uses existing query functions with caching for efficient lookups

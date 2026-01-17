@@ -6,11 +6,11 @@
  */
 
 import type { DatabaseConnection } from '../db/connection.js';
-import type { ConfigSchema, DirectoryEntry } from '../types/index.js';
-import { DEFAULT_CONFIG } from '../types/index.js';
+import type { ConfigSchema, DirectoryEntry, StatResult } from '../types/index.js';
+import { DEFAULT_CONFIG, POSIX_ERRORS, LpgfsError } from '../types/index.js';
 import { Cache } from '../cache/index.js';
 import { getLabels, getNodesByLabel, getRelationshipTypes, getRelationships } from '../db/queries.js';
-import { parsePath, CONFIG_FILENAME, PROPERTIES_FILENAME } from '../core/path-parser.js';
+import { parsePath, CONFIG_FILENAME, PROPERTIES_FILENAME, extractTargetFromRelPropertiesFilename } from '../core/path-parser.js';
 import type { Direction } from '../types/index.js';
 import { ConfigParser } from '../config/parser.js';
 
@@ -340,4 +340,345 @@ async function readdirDirection(
  */
 export function getConfigContent(ctx: HandlerContext): string {
   return ConfigParser.toYaml(ctx.config);
+}
+
+/**
+ * Get file/directory attributes for a given path.
+ *
+ * Implements FUSE getattr() operation by:
+ * 1. Parsing the path to determine context
+ * 2. Validating the path exists (checking database where needed)
+ * 3. Returning appropriate stat information
+ *
+ * @param path - The filesystem path to stat
+ * @param ctx - Handler context with db, config, cache
+ * @returns StatResult with type, size, and timestamps
+ * @throws LpgfsError with ENOENT if path doesn't exist
+ *
+ * @example
+ * // Stat a label directory
+ * const stat = await getattr('/Person', ctx);
+ * // Returns: { type: 'directory', mtime: Date, atime: Date, ctime: Date }
+ *
+ * @example
+ * // Stat a node properties file
+ * const stat = await getattr('/Person/alice/.properties.json', ctx);
+ * // Returns: { type: 'file', size: <content_length>, mtime: Date, ... }
+ *
+ * @example
+ * // Stat a symlink target
+ * const stat = await getattr('/Person/alice/KNOWS/OUT/james', ctx);
+ * // Returns: { type: 'symlink', mtime: Date, ... }
+ */
+export async function getattr(
+  path: string,
+  ctx: HandlerContext
+): Promise<StatResult> {
+  const pathContext = parsePath(path);
+
+  if (ctx.debug) {
+    console.log(`[lpgfs:fuse] getattr: ${path}`, pathContext);
+  }
+
+  const now = new Date();
+
+  switch (pathContext.type) {
+    case 'root':
+      return { type: 'directory', mtime: now, atime: now, ctime: now };
+
+    case 'label':
+      return getattrLabel(pathContext.label!, ctx);
+
+    case 'node':
+      return getattrNode(pathContext.label!, pathContext.nodeName!, ctx);
+
+    case 'reltype':
+      return getattrReltype(
+        pathContext.label!,
+        pathContext.nodeName!,
+        pathContext.relType!,
+        ctx
+      );
+
+    case 'direction':
+      return getattrDirection(
+        pathContext.label!,
+        pathContext.nodeName!,
+        pathContext.relType!,
+        pathContext.direction!,
+        ctx
+      );
+
+    case 'target':
+      return getattrTarget(
+        pathContext.label!,
+        pathContext.nodeName!,
+        pathContext.relType!,
+        pathContext.direction!,
+        pathContext.targetName!,
+        ctx
+      );
+
+    case 'properties':
+      return getattrProperties(pathContext, ctx);
+
+    default:
+      throw new LpgfsError(`Unknown path type: ${pathContext.type}`, POSIX_ERRORS.ENOENT);
+  }
+}
+
+/**
+ * Get attributes for a label directory.
+ * Validates that the label exists in the database.
+ */
+async function getattrLabel(
+  label: string,
+  ctx: HandlerContext
+): Promise<StatResult> {
+  const now = new Date();
+  const labels = await getLabels(ctx.db, ctx.cache);
+
+  if (!labels.includes(label)) {
+    throw new LpgfsError(`Label not found: ${label}`, POSIX_ERRORS.ENOENT);
+  }
+
+  return { type: 'directory', mtime: now, atime: now, ctime: now };
+}
+
+/**
+ * Get attributes for a node directory.
+ * Validates that the node exists in the database.
+ */
+async function getattrNode(
+  label: string,
+  nodeName: string,
+  ctx: HandlerContext
+): Promise<StatResult> {
+  const now = new Date();
+
+  // First check if label exists
+  const labels = await getLabels(ctx.db, ctx.cache);
+  if (!labels.includes(label)) {
+    throw new LpgfsError(`Label not found: ${label}`, POSIX_ERRORS.ENOENT);
+  }
+
+  // Then check if node exists
+  const nodes = await getNodesByLabel(ctx.db, label, ctx.config, ctx.cache);
+  const nodeExists = nodes.some((n) => n.name === nodeName);
+
+  if (!nodeExists) {
+    throw new LpgfsError(`Node not found: ${nodeName}`, POSIX_ERRORS.ENOENT);
+  }
+
+  return { type: 'directory', mtime: now, atime: now, ctime: now };
+}
+
+/**
+ * Get attributes for a relationship type directory.
+ * Validates that the node exists and has relationships of this type.
+ */
+async function getattrReltype(
+  label: string,
+  nodeName: string,
+  relType: string,
+  ctx: HandlerContext
+): Promise<StatResult> {
+  const now = new Date();
+
+  // First validate the node exists
+  const labels = await getLabels(ctx.db, ctx.cache);
+  if (!labels.includes(label)) {
+    throw new LpgfsError(`Label not found: ${label}`, POSIX_ERRORS.ENOENT);
+  }
+
+  const nodes = await getNodesByLabel(ctx.db, label, ctx.config, ctx.cache);
+  const nodeExists = nodes.some((n) => n.name === nodeName);
+  if (!nodeExists) {
+    throw new LpgfsError(`Node not found: ${nodeName}`, POSIX_ERRORS.ENOENT);
+  }
+
+  // Check if the node has this relationship type
+  const relTypes = await getRelationshipTypes(
+    ctx.db,
+    label,
+    nodeName,
+    ctx.config,
+    ctx.cache
+  );
+
+  if (!relTypes.includes(relType)) {
+    throw new LpgfsError(`Relationship type not found: ${relType}`, POSIX_ERRORS.ENOENT);
+  }
+
+  return { type: 'directory', mtime: now, atime: now, ctime: now };
+}
+
+/**
+ * Get attributes for a direction directory (OUT or IN).
+ * Validates the full path hierarchy exists.
+ */
+async function getattrDirection(
+  label: string,
+  nodeName: string,
+  relType: string,
+  direction: Direction,
+  ctx: HandlerContext
+): Promise<StatResult> {
+  const now = new Date();
+
+  // Validate direction value
+  if (direction !== 'OUT' && direction !== 'IN') {
+    throw new LpgfsError(`Invalid direction: ${direction}`, POSIX_ERRORS.ENOENT);
+  }
+
+  // Validate parent hierarchy (label, node, relType)
+  await getattrReltype(label, nodeName, relType, ctx);
+
+  return { type: 'directory', mtime: now, atime: now, ctime: now };
+}
+
+/**
+ * Get attributes for a target symlink.
+ * Validates the relationship target exists.
+ */
+async function getattrTarget(
+  label: string,
+  nodeName: string,
+  relType: string,
+  direction: Direction,
+  targetName: string,
+  ctx: HandlerContext
+): Promise<StatResult> {
+  const now = new Date();
+
+  // Validate parent hierarchy
+  await getattrDirection(label, nodeName, relType, direction, ctx);
+
+  // Get relationships and check if target exists
+  const relationships = await getRelationships(
+    ctx.db,
+    label,
+    nodeName,
+    relType,
+    direction,
+    ctx.config,
+    ctx.cache
+  );
+
+  // Build the target name map (same logic as readdirDirection)
+  const targetNameCounts = new Map<string, number>();
+  let targetExists = false;
+
+  for (const rel of relationships) {
+    const baseName = rel.targetName;
+    const count = targetNameCounts.get(baseName) || 0;
+    targetNameCounts.set(baseName, count + 1);
+
+    const displayName = count === 0 ? baseName : `${baseName}_${count}`;
+    if (displayName === targetName) {
+      targetExists = true;
+      break;
+    }
+  }
+
+  if (!targetExists) {
+    throw new LpgfsError(`Target not found: ${targetName}`, POSIX_ERRORS.ENOENT);
+  }
+
+  return { type: 'symlink', mtime: now, atime: now, ctime: now };
+}
+
+/**
+ * Get attributes for property files.
+ * Handles .lpgfs.yaml, .properties.json, and .targetName.json files.
+ */
+async function getattrProperties(
+  pathContext: ReturnType<typeof parsePath>,
+  ctx: HandlerContext
+): Promise<StatResult> {
+  const now = new Date();
+
+  // Config file at root
+  if (pathContext.isConfigFile) {
+    const content = getConfigContent(ctx);
+    return {
+      type: 'file',
+      size: Buffer.byteLength(content, 'utf8'),
+      mtime: now,
+      atime: now,
+      ctime: now,
+    };
+  }
+
+  // Node properties file (.properties.json)
+  if (pathContext.isPropertiesFile && pathContext.label && pathContext.nodeName) {
+    // Validate the node exists
+    await getattrNode(pathContext.label, pathContext.nodeName, ctx);
+
+    // For now, we don't calculate actual size until read() is called
+    // Return a placeholder size (FUSE allows this)
+    return {
+      type: 'file',
+      size: 0,
+      mtime: now,
+      atime: now,
+      ctime: now,
+    };
+  }
+
+  // Relationship properties file (.targetName.json)
+  if (pathContext.isRelPropertiesFile && pathContext.direction && pathContext.targetName) {
+    // Validate the parent path
+    await getattrDirection(
+      pathContext.label!,
+      pathContext.nodeName!,
+      pathContext.relType!,
+      pathContext.direction,
+      ctx
+    );
+
+    // Get relationships and check if this target's property file exists
+    const relationships = await getRelationships(
+      ctx.db,
+      pathContext.label!,
+      pathContext.nodeName!,
+      pathContext.relType!,
+      pathContext.direction,
+      ctx.config,
+      ctx.cache
+    );
+
+    // Build the target name map
+    const targetNameCounts = new Map<string, number>();
+    let fileExists = false;
+
+    for (const rel of relationships) {
+      const baseName = rel.targetName;
+      const count = targetNameCounts.get(baseName) || 0;
+      targetNameCounts.set(baseName, count + 1);
+
+      const displayName = count === 0 ? baseName : `${baseName}_${count}`;
+      if (displayName === pathContext.targetName) {
+        fileExists = true;
+        break;
+      }
+    }
+
+    if (!fileExists) {
+      throw new LpgfsError(
+        `Relationship properties file not found: .${pathContext.targetName}.json`,
+        POSIX_ERRORS.ENOENT
+      );
+    }
+
+    return {
+      type: 'file',
+      size: 0,
+      mtime: now,
+      atime: now,
+      ctime: now,
+    };
+  }
+
+  throw new LpgfsError('Properties file not found', POSIX_ERRORS.ENOENT);
 }
