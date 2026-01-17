@@ -7,8 +7,9 @@ if [ -z "$1" ]; then
 fi
 
 for ((i=1; i<=$1; i++)); do
-  docker sandbox run --credentials host claude --allow-dangerously-skip-permissions "@progress.txt @plans/xloop/prompt.md @plans/next.yml @AGENTS.md" 2>&1 | tee /tmp/docker_output.txt
-  result=$(cat /tmp/docker_output.txt)
+  result=$(docker sandbox run --credentials host claude -p "@progress.txt @plans/xloop/prompt.md @plans/next.yml @AGENTS.md")
+
+  echo "$result"
 
   if [[ "$result" == *"<promise>COMPLETE</promise>"* ]]; then
     echo "PRD complete after $i iterations."
