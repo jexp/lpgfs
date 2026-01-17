@@ -601,7 +601,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-021"
-completed: false
+completed: true
 ---
 id: "task-023"
 title: "Implement FUSE read() for node properties"

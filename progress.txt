@@ -424,3 +424,25 @@
 - None - typecheck and all 93 tests pass
 - Helper functions reuse validation logic (getattrDirection calls getattrReltype, etc.) for DRY code
 - Uses existing query functions with caching for efficient lookups
+
+## Task 022: Implement FUSE readlink()
+- **Status:** Completed
+- **PRD Reference:** Section 5.2.3 (Relationship Symlinks), Section 7 (Cross-Label Relationships)
+
+### Key Decisions
+- Created `readlink()` function to resolve symlinks to relative paths
+- Same-label relationships use `../../../targetName` (3 levels up from OUT/IN dir to label dir)
+- Cross-label relationships use `../../../../TargetLabel/targetName` (4 levels up to root, then target label and name)
+- Reuses existing `getRelationships()` query with caching for efficient lookups
+- Uses same target name suffix logic as `readdirDirection()` and `getattrTarget()` for consistency
+- Returns target's actual display name (from `targetName` field) in the relative path
+- Throws `LpgfsError` with `POSIX_ERRORS.ENOENT` for non-symlink paths or non-existent targets
+
+### Files Changed
+- src/fuse/handlers.ts: Added `readlink()` function export
+- src/fuse/handlers.test.ts: Added readlink test suite with 11 tests covering same-label, cross-label, multiple rels, IN direction, property naming, and error handling
+
+### Blockers/Notes
+- None - typecheck and all 104 tests pass
+- Note: PRD examples at lines 90, 331, 343, 350 appear to have incorrect relative path depth for cross-label (shows 3 `..` instead of 4); implementation uses correct path calculation
+- The implementation correctly calculates relative paths based on actual directory structure

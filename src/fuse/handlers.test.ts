@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readdir, createHandlerContext, getConfigContent, getattr } from './handlers.js';
+import { readdir, createHandlerContext, getConfigContent, getattr, readlink } from './handlers.js';
 import type { HandlerContext } from './handlers.js';
 import type { DatabaseConnection } from '../db/connection.js';
 import { DEFAULT_CONFIG, LpgfsError, POSIX_ERRORS } from '../types/index.js';
@@ -1263,6 +1263,367 @@ describe('getattr', () => {
         (call) => typeof call[0] === 'string' && call[0].includes('db.labels()')
       );
       expect(labelsCalls).toHaveLength(1);
+    });
+  });
+});
+
+describe('readlink', () => {
+  let ctx: HandlerContext;
+
+  describe('same-label relationships', () => {
+    it('returns relative path for same-label symlink', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+            { elementId: '4:abc:1', properties: { username: 'james' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {
+          '4:abc:0:KNOWS:OUT': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: { since: 2020 },
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+          ],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      const target = await readlink('/Person/4_abc_0/KNOWS/OUT/4_abc_1', ctx);
+
+      // Same label: 3 levels up, then target name
+      expect(target).toBe('../../../4_abc_1');
+    });
+
+    it('works with property naming strategy', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+            { elementId: '4:abc:1', properties: { username: 'james' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {
+          '4:abc:0:KNOWS:OUT': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: { since: 2020 },
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+          ],
+        }
+      );
+      const config = {
+        ...DEFAULT_CONFIG,
+        naming: {
+          default: 'property' as const,
+          overrides: {
+            nodes: {
+              Person: { property: 'username' },
+            },
+          },
+        },
+      };
+      ctx = createHandlerContext(db, { config });
+
+      const target = await readlink('/Person/alice/KNOWS/OUT/james', ctx);
+
+      expect(target).toBe('../../../james');
+    });
+
+    it('handles IN direction', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+            { elementId: '4:abc:1', properties: { username: 'james' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {
+          '4:abc:0:KNOWS:IN': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: {},
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+          ],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      const target = await readlink('/Person/4_abc_0/KNOWS/IN/4_abc_1', ctx);
+
+      expect(target).toBe('../../../4_abc_1');
+    });
+  });
+
+  describe('cross-label relationships', () => {
+    it('returns relative path for cross-label symlink', async () => {
+      const db = createMockDbWithNodes(
+        ['Person', 'Company'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+          ],
+          Company: [
+            { elementId: '4:xyz:0', properties: { name: 'Acme' } },
+          ],
+        },
+        {
+          '4:abc:0': ['WORKS_AT'],
+        },
+        {
+          '4:abc:0:WORKS_AT:OUT': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: { role: 'Engineer' },
+              targetElementId: '4:xyz:0',
+              targetLabels: ['Company'],
+              targetProperties: { name: 'Acme' },
+            },
+          ],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      const target = await readlink('/Person/4_abc_0/WORKS_AT/OUT/4_xyz_0', ctx);
+
+      // Cross-label: 4 levels up, then TargetLabel/targetName
+      expect(target).toBe('../../../../Company/4_xyz_0');
+    });
+
+    it('works with property naming for cross-label', async () => {
+      const db = createMockDbWithNodes(
+        ['Person', 'Company'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+          ],
+          Company: [
+            { elementId: '4:xyz:0', properties: { name: 'Acme' } },
+          ],
+        },
+        {
+          '4:abc:0': ['WORKS_AT'],
+        },
+        {
+          '4:abc:0:WORKS_AT:OUT': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: { role: 'Engineer' },
+              targetElementId: '4:xyz:0',
+              targetLabels: ['Company'],
+              targetProperties: { name: 'Acme' },
+            },
+          ],
+        }
+      );
+      const config = {
+        ...DEFAULT_CONFIG,
+        naming: {
+          default: 'property' as const,
+          overrides: {
+            nodes: {
+              Person: { property: 'username' },
+              Company: { property: 'name' },
+            },
+          },
+        },
+      };
+      ctx = createHandlerContext(db, { config });
+
+      const target = await readlink('/Person/alice/WORKS_AT/OUT/Acme', ctx);
+
+      expect(target).toBe('../../../../Company/Acme');
+    });
+
+    it('handles IN direction for cross-label', async () => {
+      const db = createMockDbWithNodes(
+        ['Person', 'Company'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+          ],
+          Company: [
+            { elementId: '4:xyz:0', properties: { name: 'Acme' } },
+          ],
+        },
+        {
+          '4:xyz:0': ['WORKS_AT'],
+        },
+        {
+          '4:xyz:0:WORKS_AT:IN': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: {},
+              targetElementId: '4:abc:0',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'alice' },
+            },
+          ],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      const target = await readlink('/Company/4_xyz_0/WORKS_AT/IN/4_abc_0', ctx);
+
+      expect(target).toBe('../../../../Person/4_abc_0');
+    });
+  });
+
+  describe('multiple relationships to same target', () => {
+    it('handles suffix for multiple rels to same target', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+            { elementId: '4:abc:1', properties: { username: 'james' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {
+          '4:abc:0:KNOWS:OUT': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: { context: 'work' },
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+            {
+              relElementId: '5:abc:1',
+              relProperties: { context: 'school' },
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+          ],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      // First relationship uses base name
+      const target1 = await readlink('/Person/4_abc_0/KNOWS/OUT/4_abc_1', ctx);
+      expect(target1).toBe('../../../4_abc_1');
+
+      // Second relationship uses suffix
+      const target2 = await readlink('/Person/4_abc_0/KNOWS/OUT/4_abc_1_1', ctx);
+      expect(target2).toBe('../../../4_abc_1');
+    });
+  });
+
+  describe('error handling', () => {
+    it('throws ENOENT for non-existent symlink', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {
+          '4:abc:0:KNOWS:OUT': [],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      await expect(readlink('/Person/4_abc_0/KNOWS/OUT/nonexistent', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('throws ENOENT for non-symlink path', async () => {
+      ctx = createHandlerContext(createMockDb(['Person']));
+
+      // Try to readlink a directory
+      await expect(readlink('/Person', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('throws ENOENT for properties file path', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+          ],
+        },
+        {},
+        {}
+      );
+      ctx = createHandlerContext(db);
+
+      await expect(readlink('/Person/4_abc_0/.properties.json', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+  });
+
+  describe('caching', () => {
+    it('uses cached relationship data', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+            { elementId: '4:abc:1', properties: { username: 'james' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {
+          '4:abc:0:KNOWS:OUT': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: {},
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+          ],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      // First call
+      await readlink('/Person/4_abc_0/KNOWS/OUT/4_abc_1', ctx);
+      // Second call should use cache
+      await readlink('/Person/4_abc_0/KNOWS/OUT/4_abc_1', ctx);
+
+      // Relationship query should only be called once
+      const mockCalls = (db.executeQuery as ReturnType<typeof vi.fn>).mock.calls;
+      const relCalls = mockCalls.filter(
+        (call) => typeof call[0] === 'string' && call[0].includes('-[r:`KNOWS`]->')
+      );
+      expect(relCalls).toHaveLength(1);
     });
   });
 });

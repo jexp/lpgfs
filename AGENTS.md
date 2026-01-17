@@ -337,3 +337,21 @@ const stat = await getattr('/Person', ctx);
 - Helper functions reuse each other for DRY validation
 - `getattrDirection()` calls `getattrReltype()` which validates node and label
 - Uses same suffix logic as `readdirDirection()` for multiple rels to same target
+
+### readlink() Operation (src/fuse/handlers.ts)
+- `readlink(path, ctx)` - Resolve symlink to relative path
+  - Only applies to 'target' path type (symlinks in OUT/IN directories)
+  - Returns relative path string to target node directory
+  - Throws `LpgfsError` with `POSIX_ERRORS.ENOENT` for non-symlink paths
+
+**Relative path calculation:**
+- Same-label: `../../../targetName` (3 levels up from OUT/IN dir to label dir)
+- Cross-label: `../../../../TargetLabel/targetName` (4 levels up to root, then target path)
+
+**Example paths:**
+```
+/Person/alice/KNOWS/OUT/james → ../../../james          (same label)
+/Person/alice/WORKS_AT/OUT/acme → ../../../../Company/acme  (cross-label)
+```
+
+**Important:** Symlink relative paths are calculated from the directory containing the symlink (e.g., `/Person/alice/KNOWS/OUT/`), not from the symlink itself. This is standard FUSE/filesystem behavior.

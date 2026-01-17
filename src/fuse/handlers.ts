@@ -682,3 +682,106 @@ async function getattrProperties(
 
   throw new LpgfsError('Properties file not found', POSIX_ERRORS.ENOENT);
 }
+
+/**
+ * Resolve symlink target to relative path.
+ *
+ * Implements FUSE readlink() operation by:
+ * 1. Parsing the path to get the symlink context
+ * 2. Finding the target node's label and name
+ * 3. Calculating the relative path from symlink to target
+ *
+ * @param path - The symlink path (e.g., /Person/alice/KNOWS/OUT/james)
+ * @param ctx - Handler context with db, config, cache
+ * @returns Relative path to target node directory
+ * @throws LpgfsError with ENOENT if symlink doesn't exist
+ *
+ * @example
+ * // Same-label relationship
+ * const target = await readlink('/Person/alice/KNOWS/OUT/james', ctx);
+ * // Returns: '../../../james'
+ *
+ * @example
+ * // Cross-label relationship
+ * const target = await readlink('/Person/alice/WORKS_AT/OUT/acme', ctx);
+ * // Returns: '../../../../Company/acme'
+ */
+export async function readlink(
+  path: string,
+  ctx: HandlerContext
+): Promise<string> {
+  const pathContext = parsePath(path);
+
+  if (ctx.debug) {
+    console.log(`[lpgfs:fuse] readlink: ${path}`, pathContext);
+  }
+
+  // readlink only applies to target symlinks
+  if (pathContext.type !== 'target') {
+    throw new LpgfsError(`Not a symlink: ${path}`, POSIX_ERRORS.ENOENT);
+  }
+
+  // Validate required path components
+  if (
+    !pathContext.label ||
+    !pathContext.nodeName ||
+    !pathContext.relType ||
+    !pathContext.direction ||
+    !pathContext.targetName
+  ) {
+    throw new LpgfsError(`Invalid symlink path: ${path}`, POSIX_ERRORS.ENOENT);
+  }
+
+  // Get relationships to find target info
+  const relationships = await getRelationships(
+    ctx.db,
+    pathContext.label,
+    pathContext.nodeName,
+    pathContext.relType,
+    pathContext.direction,
+    ctx.config,
+    ctx.cache
+  );
+
+  if (relationships.length === 0) {
+    throw new LpgfsError(`No relationships found for symlink: ${path}`, POSIX_ERRORS.ENOENT);
+  }
+
+  // Find the target relationship using the same suffix logic as readdirDirection and getattrTarget
+  const targetNameCounts = new Map<string, number>();
+  let targetRel = null;
+
+  for (const rel of relationships) {
+    const baseName = rel.targetName;
+    const count = targetNameCounts.get(baseName) || 0;
+    targetNameCounts.set(baseName, count + 1);
+
+    const displayName = count === 0 ? baseName : `${baseName}_${count}`;
+    if (displayName === pathContext.targetName) {
+      targetRel = rel;
+      break;
+    }
+  }
+
+  if (!targetRel) {
+    throw new LpgfsError(`Target not found: ${pathContext.targetName}`, POSIX_ERRORS.ENOENT);
+  }
+
+  // Build relative path based on whether same or different label
+  // Symlink is at: /Label/node/RELTYPE/DIR/target
+  // We need to navigate from the DIR directory to the target node directory
+
+  const sourceLabel = pathContext.label;
+  const targetLabel = targetRel.targetLabel;
+  const targetName = targetRel.targetName;
+
+  if (sourceLabel === targetLabel) {
+    // Same label: go up 3 levels (to label dir) then to target
+    // From /Label/node/RELTYPE/DIR/ → ../../.. → /Label/, then targetName → /Label/targetName
+    return `../../../${targetName}`;
+  } else {
+    // Different label: go up 4 levels (to root) then to target label and name
+    // From /Label/node/RELTYPE/DIR/ → ../../../.. → /, then Label/targetName → /Label/targetName
+    return `../../../../${targetLabel}/${targetName}`;
+  }
+}
