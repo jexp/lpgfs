@@ -276,3 +276,28 @@ const labelsCached = await getLabels(db, cache);
 - Empty paths are treated as root
 - Invalid directions are passed through (FUSE layer validates)
 - Self-referential and multi-relationship patterns are supported
+
+## FUSE Handlers
+
+### Handler Context (src/fuse/handlers.ts)
+- `HandlerContext` interface holds shared resources: db, config, cache, debug flag
+- `createHandlerContext(db, options?)` - Create context with defaults
+
+### FUSE Operations
+- `readdir(path, ctx)` - Read directory contents, returns `DirectoryEntry[]`
+  - Dispatches based on `PathContext.type` from path parser
+  - For root (`/`): Returns labels as directories + `.lpgfs.yaml` file
+- `getConfigContent(ctx)` - Get config as YAML string for reading `/.lpgfs.yaml`
+
+### Usage Example
+```typescript
+import { createHandlerContext, readdir } from './fuse/handlers.js';
+import { connect } from './db/connection.js';
+
+const db = await connect({ uri: 'neo4j://localhost:7687' });
+const ctx = createHandlerContext(db, { debug: true });
+
+// List root directory
+const entries = await readdir('/', ctx);
+// Returns: [{ name: 'Person', type: 'directory' }, { name: '.lpgfs.yaml', type: 'file' }]
+```

@@ -292,3 +292,25 @@
 - None - typecheck and all tests pass
 - Parser is defensive and handles invalid directions by returning them as-is (FUSE layer handles validation)
 - Deep paths beyond target are handled for symlink traversal scenarios
+
+## Task 016: Implement FUSE readdir() for root
+- **Status:** Completed
+- **PRD Reference:** Section 12.2 (Query Mapping)
+
+### Key Decisions
+- Created `src/fuse/handlers.ts` as the FUSE operations module
+- Implemented `readdir()` function that dispatches based on PathContext type
+- Created `HandlerContext` interface to hold shared resources (db, config, cache, debug)
+- `createHandlerContext()` factory function sets up context with defaults
+- `readdirRoot()` returns all labels as directories plus `.lpgfs.yaml` file
+- Uses existing `getLabels()` query with caching
+- Added `getConfigContent()` helper for reading /.lpgfs.yaml (used in future tasks)
+- Comprehensive test suite with 9 tests covering labels, config file, empty db, caching
+
+### Files Changed
+- src/fuse/handlers.ts (new): FUSE handler implementations with readdir for root
+- src/fuse/handlers.test.ts (new): Test suite for handlers
+
+### Blockers/Notes
+- None - typecheck and all 46 tests pass
+- Prepared structure for subsequent readdir implementations (label, node, reltype, direction)

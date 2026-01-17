@@ -449,7 +449,7 @@ parentID: "lpgfs-foundation"
 dependsOn:
   - "task-015"
   - "task-014"
-completed: false
+completed: true
 ---
 id: "task-017"
 title: "Implement FUSE readdir() for label directory"
