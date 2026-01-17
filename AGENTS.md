@@ -355,3 +355,40 @@ const stat = await getattr('/Person', ctx);
 ```
 
 **Important:** Symlink relative paths are calculated from the directory containing the symlink (e.g., `/Person/alice/KNOWS/OUT/`), not from the symlink itself. This is standard FUSE/filesystem behavior.
+
+### read() Operation (src/fuse/handlers.ts)
+- `read(path, ctx, offset?, length?)` - Read file contents
+  - Returns `ReadResult` interface: `{ content: string, size: number }`
+  - `size` is always the total file size in bytes, even for partial reads
+  - `content` is the (possibly partial) file content as a string
+
+**Supported file types:**
+- `/.lpgfs.yaml` - Configuration file (returns YAML)
+- `/Label/nodeName/.properties.json` - Node properties (returns JSON)
+- Relationship properties files will be supported in task-024
+
+**Node properties format:**
+```json
+{
+  "_elementId": "4:abc:0",
+  "username": "alice",
+  "age": 30
+}
+```
+
+**Partial read support:**
+- `offset` - Start reading from this byte position (default: 0)
+- `length` - Maximum bytes to read (default: entire file)
+- Uses Buffer for byte-accurate UTF-8 slicing
+- Returns empty string if offset exceeds file size
+
+**Usage Example:**
+```typescript
+// Full read
+const result = await read('/Person/alice/.properties.json', ctx);
+console.log(result.content); // JSON string
+console.log(result.size);    // Total bytes
+
+// Partial read (first 100 bytes)
+const partial = await read('/Person/alice/.properties.json', ctx, 0, 100);
+```

@@ -627,7 +627,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-022"
-completed: false
+completed: true
 ---
 id: "task-024"
 title: "Implement FUSE read() for relationship properties"

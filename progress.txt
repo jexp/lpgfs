@@ -446,3 +446,28 @@
 - None - typecheck and all 104 tests pass
 - Note: PRD examples at lines 90, 331, 343, 350 appear to have incorrect relative path depth for cross-label (shows 3 `..` instead of 4); implementation uses correct path calculation
 - The implementation correctly calculates relative paths based on actual directory structure
+
+## Task 023: Implement FUSE read() for node properties
+- **Status:** Completed
+- **PRD Reference:** Section 5.1 (Node Properties)
+
+### Key Decisions
+- Created `read()` function to read file contents for `.properties.json` and `.lpgfs.yaml` files
+- Returns `ReadResult` interface with `content` (string) and `size` (total bytes)
+- Node properties returned as formatted JSON (2-space indentation) for readability
+- Output includes `_elementId` field plus all node properties, matching PRD section 5.1
+- Supports partial reads via `offset` and `length` parameters (for FUSE read offset handling)
+- Uses Buffer for byte-accurate offset/length slicing (handles multi-byte UTF-8 correctly)
+- Reuses existing `getNodeProperties()` query with caching for efficient lookups
+- Config file (`.lpgfs.yaml`) reading is also supported via this function
+- Throws `LpgfsError` with `POSIX_ERRORS.ENOENT` for non-file paths or non-existent nodes
+- Relationship properties file reading stubbed with clear error message (to be implemented in task-024)
+
+### Files Changed
+- src/fuse/handlers.ts: Added `read()` function, `ReadResult` interface, and `readNodeProperties()` helper
+- src/fuse/handlers.test.ts: Added read() test suite with 18 tests covering config file, node properties, partial reads, error handling, and caching
+
+### Blockers/Notes
+- None - typecheck and all 122 tests pass
+- Implementation allows `cat /Person/alice/.properties.json` to return valid JSON with _elementId field
+- Partial read support enables efficient streaming of large files

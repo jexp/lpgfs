@@ -9,7 +9,7 @@ import type { DatabaseConnection } from '../db/connection.js';
 import type { ConfigSchema, DirectoryEntry, StatResult } from '../types/index.js';
 import { DEFAULT_CONFIG, POSIX_ERRORS, LpgfsError } from '../types/index.js';
 import { Cache } from '../cache/index.js';
-import { getLabels, getNodesByLabel, getRelationshipTypes, getRelationships } from '../db/queries.js';
+import { getLabels, getNodesByLabel, getRelationshipTypes, getRelationships, getNodeProperties } from '../db/queries.js';
 import { parsePath, CONFIG_FILENAME, PROPERTIES_FILENAME, extractTargetFromRelPropertiesFilename } from '../core/path-parser.js';
 import type { Direction } from '../types/index.js';
 import { ConfigParser } from '../config/parser.js';
@@ -784,4 +784,133 @@ export async function readlink(
     // From /Label/node/RELTYPE/DIR/ → ../../../.. → /, then Label/targetName → /Label/targetName
     return `../../../../${targetLabel}/${targetName}`;
   }
+}
+
+/**
+ * Read result containing file content and metadata.
+ */
+export interface ReadResult {
+  /** The file content as a string */
+  content: string;
+  /** Total size of the content in bytes */
+  size: number;
+}
+
+/**
+ * Read file contents.
+ *
+ * Implements FUSE read() operation by:
+ * 1. Parsing the path to determine file type
+ * 2. Fetching appropriate data from database
+ * 3. Returning JSON content for property files
+ *
+ * Currently supports:
+ * - /.lpgfs.yaml - Configuration file
+ * - /Label/nodeName/.properties.json - Node properties
+ *
+ * @param path - The file path to read
+ * @param ctx - Handler context with db, config, cache
+ * @param offset - Byte offset to start reading from (default: 0)
+ * @param length - Number of bytes to read (default: entire file)
+ * @returns ReadResult with content string and total size
+ * @throws LpgfsError with ENOENT if file doesn't exist
+ *
+ * @example
+ * // Read node properties
+ * const result = await read('/Person/alice/.properties.json', ctx);
+ * // Returns: { content: '{"_elementId":"4:abc:0","username":"alice",...}', size: ... }
+ *
+ * @example
+ * // Partial read with offset
+ * const result = await read('/Person/alice/.properties.json', ctx, 10, 50);
+ * // Returns 50 bytes starting at offset 10
+ */
+export async function read(
+  path: string,
+  ctx: HandlerContext,
+  offset: number = 0,
+  length?: number
+): Promise<ReadResult> {
+  const pathContext = parsePath(path);
+
+  if (ctx.debug) {
+    console.log(`[lpgfs:fuse] read: ${path}`, { offset, length, pathContext });
+  }
+
+  // Only property files can be read
+  if (pathContext.type !== 'properties') {
+    throw new LpgfsError(`Not a file: ${path}`, POSIX_ERRORS.ENOENT);
+  }
+
+  let content: string;
+
+  // Config file (/.lpgfs.yaml)
+  if (pathContext.isConfigFile) {
+    content = getConfigContent(ctx);
+  }
+  // Node properties file (.properties.json)
+  else if (pathContext.isPropertiesFile && pathContext.label && pathContext.nodeName) {
+    content = await readNodeProperties(
+      pathContext.label,
+      pathContext.nodeName,
+      ctx
+    );
+  }
+  // Relationship properties file (.targetName.json) - to be implemented in task-024
+  else if (pathContext.isRelPropertiesFile) {
+    throw new LpgfsError(
+      'Relationship properties read not yet implemented',
+      POSIX_ERRORS.ENOENT
+    );
+  }
+  // Unknown file type
+  else {
+    throw new LpgfsError(`Unknown file type: ${path}`, POSIX_ERRORS.ENOENT);
+  }
+
+  // Calculate total size in bytes
+  const totalSize = Buffer.byteLength(content, 'utf8');
+
+  // Handle offset and length for partial reads
+  if (offset > 0 || length !== undefined) {
+    const contentBuffer = Buffer.from(content, 'utf8');
+    const end = length !== undefined ? Math.min(offset + length, totalSize) : totalSize;
+    const sliced = contentBuffer.subarray(offset, end);
+    content = sliced.toString('utf8');
+  }
+
+  return {
+    content,
+    size: totalSize,
+  };
+}
+
+/**
+ * Read node properties and return as JSON string.
+ *
+ * @param label - The node label (e.g., "Person")
+ * @param nodeName - The node display name (e.g., "alice")
+ * @param ctx - Handler context
+ * @returns JSON string with _elementId and all node properties
+ * @throws LpgfsError with ENOENT if node doesn't exist
+ */
+async function readNodeProperties(
+  label: string,
+  nodeName: string,
+  ctx: HandlerContext
+): Promise<string> {
+  const props = await getNodeProperties(
+    ctx.db,
+    label,
+    nodeName,
+    ctx.config,
+    ctx.cache
+  );
+
+  if (props === null) {
+    throw new LpgfsError(`Node not found: ${label}/${nodeName}`, POSIX_ERRORS.ENOENT);
+  }
+
+  // Return formatted JSON with 2-space indentation for readability
+  return JSON.stringify(props, null, 2);
 }

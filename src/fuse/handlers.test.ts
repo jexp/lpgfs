@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readdir, createHandlerContext, getConfigContent, getattr, readlink } from './handlers.js';
+import { readdir, createHandlerContext, getConfigContent, getattr, readlink, read } from './handlers.js';
 import type { HandlerContext } from './handlers.js';
 import type { DatabaseConnection } from '../db/connection.js';
 import { DEFAULT_CONFIG, LpgfsError, POSIX_ERRORS } from '../types/index.js';
@@ -1624,6 +1624,246 @@ describe('readlink', () => {
         (call) => typeof call[0] === 'string' && call[0].includes('-[r:`KNOWS`]->')
       );
       expect(relCalls).toHaveLength(1);
+    });
+  });
+});
+
+describe('read', () => {
+  let ctx: HandlerContext;
+
+  describe('config file (/.lpgfs.yaml)', () => {
+    beforeEach(() => {
+      ctx = createHandlerContext(createMockDb(['Person']));
+    });
+
+    it('returns config content as YAML string', async () => {
+      const result = await read('/.lpgfs.yaml', ctx);
+
+      expect(typeof result.content).toBe('string');
+      expect(result.content).toContain('naming');
+      expect(result.size).toBeGreaterThan(0);
+      expect(result.size).toBe(Buffer.byteLength(result.content, 'utf8'));
+    });
+
+    it('returns correct size', async () => {
+      const result = await read('/.lpgfs.yaml', ctx);
+
+      // Read again without offset to verify size is consistent
+      const fullContent = getConfigContent(ctx);
+      expect(result.size).toBe(Buffer.byteLength(fullContent, 'utf8'));
+    });
+  });
+
+  describe('node properties (.properties.json)', () => {
+    beforeEach(() => {
+      const db = createMockDbWithNodes(['Person'], {
+        Person: [
+          { elementId: '4:abc:0', properties: { username: 'alice', age: 30, email: 'alice@example.com' } },
+          { elementId: '4:abc:1', properties: { username: 'bob', age: 25 } },
+        ],
+      });
+      ctx = createHandlerContext(db);
+    });
+
+    it('returns node properties as JSON', async () => {
+      const result = await read('/Person/4_abc_0/.properties.json', ctx);
+
+      expect(result.content).toBeTruthy();
+      const parsed = JSON.parse(result.content);
+      expect(parsed._elementId).toBe('4:abc:0');
+      expect(parsed.username).toBe('alice');
+      expect(parsed.age).toBe(30);
+      expect(parsed.email).toBe('alice@example.com');
+    });
+
+    it('includes _elementId field in output', async () => {
+      const result = await read('/Person/4_abc_0/.properties.json', ctx);
+
+      const parsed = JSON.parse(result.content);
+      expect(parsed._elementId).toBe('4:abc:0');
+    });
+
+    it('returns formatted JSON with indentation', async () => {
+      const result = await read('/Person/4_abc_0/.properties.json', ctx);
+
+      // Check for newlines and spaces indicating formatted JSON
+      expect(result.content).toContain('\n');
+      expect(result.content).toContain('  ');
+    });
+
+    it('throws ENOENT for non-existent node', async () => {
+      await expect(read('/Person/nonexistent/.properties.json', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('throws ENOENT for non-existent label', async () => {
+      await expect(read('/NonExistent/alice/.properties.json', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('works with property naming strategy', async () => {
+      const db = createMockDbWithNodes(['Person'], {
+        Person: [
+          { elementId: '4:abc:0', properties: { username: 'alice', age: 30 } },
+        ],
+      });
+      const config = {
+        ...DEFAULT_CONFIG,
+        naming: {
+          default: 'property' as const,
+          overrides: {
+            nodes: {
+              Person: { property: 'username' },
+            },
+          },
+        },
+      };
+      ctx = createHandlerContext(db, { config });
+
+      const result = await read('/Person/alice/.properties.json', ctx);
+
+      const parsed = JSON.parse(result.content);
+      expect(parsed._elementId).toBe('4:abc:0');
+      expect(parsed.username).toBe('alice');
+    });
+
+    it('returns correct size in bytes', async () => {
+      const result = await read('/Person/4_abc_0/.properties.json', ctx);
+
+      // Verify size matches actual content bytes
+      expect(result.size).toBe(Buffer.byteLength(result.content, 'utf8'));
+    });
+  });
+
+  describe('partial reads with offset/length', () => {
+    beforeEach(() => {
+      const db = createMockDbWithNodes(['Person'], {
+        Person: [
+          { elementId: '4:abc:0', properties: { username: 'alice', data: 'some long data for testing partial reads' } },
+        ],
+      });
+      ctx = createHandlerContext(db);
+    });
+
+    it('handles offset parameter', async () => {
+      const fullResult = await read('/Person/4_abc_0/.properties.json', ctx);
+      const partialResult = await read('/Person/4_abc_0/.properties.json', ctx, 10);
+
+      // Content should be from offset to end
+      expect(partialResult.content).toBe(fullResult.content.substring(10));
+      // Size should be total file size, not partial content size
+      expect(partialResult.size).toBe(fullResult.size);
+    });
+
+    it('handles length parameter', async () => {
+      const fullResult = await read('/Person/4_abc_0/.properties.json', ctx);
+      const partialResult = await read('/Person/4_abc_0/.properties.json', ctx, 0, 20);
+
+      // Content should be first 20 bytes
+      expect(partialResult.content.length).toBeLessThanOrEqual(20);
+      // Size should be total file size
+      expect(partialResult.size).toBe(fullResult.size);
+    });
+
+    it('handles offset and length together', async () => {
+      const fullResult = await read('/Person/4_abc_0/.properties.json', ctx);
+      const partialResult = await read('/Person/4_abc_0/.properties.json', ctx, 5, 10);
+
+      // Content should be 10 bytes starting at offset 5
+      const expectedContent = Buffer.from(fullResult.content, 'utf8').subarray(5, 15).toString('utf8');
+      expect(partialResult.content).toBe(expectedContent);
+    });
+
+    it('handles offset beyond content length', async () => {
+      const fullResult = await read('/Person/4_abc_0/.properties.json', ctx);
+      const partialResult = await read('/Person/4_abc_0/.properties.json', ctx, fullResult.size + 10);
+
+      // Should return empty content
+      expect(partialResult.content).toBe('');
+      expect(partialResult.size).toBe(fullResult.size);
+    });
+
+    it('handles length extending beyond content', async () => {
+      const fullResult = await read('/Person/4_abc_0/.properties.json', ctx);
+      const partialResult = await read('/Person/4_abc_0/.properties.json', ctx, 0, fullResult.size + 100);
+
+      // Should return full content (not beyond)
+      expect(partialResult.content).toBe(fullResult.content);
+    });
+  });
+
+  describe('error handling', () => {
+    beforeEach(() => {
+      ctx = createHandlerContext(createMockDb(['Person']));
+    });
+
+    it('throws ENOENT for directory paths', async () => {
+      await expect(read('/Person', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('throws ENOENT for root path', async () => {
+      await expect(read('/', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('throws ENOENT for symlink paths', async () => {
+      const db = createMockDbWithNodes(
+        ['Person'],
+        {
+          Person: [
+            { elementId: '4:abc:0', properties: { username: 'alice' } },
+            { elementId: '4:abc:1', properties: { username: 'james' } },
+          ],
+        },
+        {
+          '4:abc:0': ['KNOWS'],
+        },
+        {
+          '4:abc:0:KNOWS:OUT': [
+            {
+              relElementId: '5:abc:0',
+              relProperties: {},
+              targetElementId: '4:abc:1',
+              targetLabels: ['Person'],
+              targetProperties: { username: 'james' },
+            },
+          ],
+        }
+      );
+      ctx = createHandlerContext(db);
+
+      // Try to read a symlink (should fail)
+      await expect(read('/Person/4_abc_0/KNOWS/OUT/4_abc_1', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+  });
+
+  describe('caching', () => {
+    it('uses cached node data', async () => {
+      const db = createMockDbWithNodes(['Person'], {
+        Person: [
+          { elementId: '4:abc:0', properties: { username: 'alice' } },
+        ],
+      });
+      ctx = createHandlerContext(db);
+
+      // First read
+      await read('/Person/4_abc_0/.properties.json', ctx);
+      // Second read should use cache
+      await read('/Person/4_abc_0/.properties.json', ctx);
+
+      // Node query should only be called once (nodes are cached)
+      const mockCalls = (db.executeQuery as ReturnType<typeof vi.fn>).mock.calls;
+      const nodeCalls = mockCalls.filter(
+        (call) => typeof call[0] === 'string' && call[0].includes('MATCH (n:`Person`)')
+      );
+      expect(nodeCalls).toHaveLength(1);
     });
   });
 });
