@@ -278,7 +278,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-009"
-completed: false
+completed: true
 ---
 id: "task-011"
 title: "Implement query: list relationships by type & direction"

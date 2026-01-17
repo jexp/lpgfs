@@ -163,3 +163,22 @@
 ### Blockers/Notes
 - None - typecheck passes
 - Note: Uses O(n) search over all nodes for label; caching (task-014) will optimize this
+
+## Task 010: Implement query: list relationship types for node
+- **Status:** Completed
+- **PRD Reference:** Section 12.2 (Query Mapping)
+
+### Key Decisions
+- Created `getRelationshipTypes(db, label, name, config)` function in src/db/queries.ts
+- Uses Cypher: `MATCH (n)-[r]-() WHERE elementId(n) = $elementId RETURN DISTINCT type(r) AS relType`
+- Returns both outgoing and incoming relationship types (combined, as that's what the node dir needs)
+- Returns string[] (empty array if node not found or has no relationships)
+- Reuses `getNodesByLabel()` to find node by display name - ensures consistent naming logic
+- Uses parameterized query with elementId for safety and performance
+
+### Files Changed
+- src/db/queries.ts: Added getRelationshipTypes() function
+
+### Blockers/Notes
+- None - typecheck passes
+- Note: Uses same O(n) lookup pattern as getNodeProperties; caching (task-014) will optimize this

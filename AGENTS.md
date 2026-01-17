@@ -157,3 +157,11 @@ interface ConnectionOptions {
   - Reuses `getNodesByLabel()` for consistent naming logic
   - Handles both naming strategies (elementId and property) transparently
   - O(n) lookup will be optimized by caching in task-014
+
+### Relationship Types Query (src/db/queries.ts)
+- `getRelationshipTypes(db, label, name, config?)` - Get distinct relationship types for a node
+  - Returns `string[]` of relationship type names (e.g., `['KNOWS', 'WORKS_AT']`)
+  - Returns empty array if node not found or has no relationships
+  - Queries both outgoing and incoming relationships combined
+  - Uses parameterized Cypher: `MATCH (n)-[r]-() WHERE elementId(n) = $elementId RETURN DISTINCT type(r)`
+  - Reuses `getNodesByLabel()` for consistent naming logic with filesystem display names

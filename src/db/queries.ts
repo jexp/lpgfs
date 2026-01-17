@@ -197,3 +197,49 @@ export async function getNodeProperties(
     ...node.properties,
   };
 }
+
+/**
+ * Get all distinct relationship types connected to a node.
+ *
+ * Returns both outgoing and incoming relationship types.
+ *
+ * @param db Database connection
+ * @param label The node label
+ * @param name The display name (filesystem directory name) to look up
+ * @param config Configuration schema for naming
+ * @returns Array of distinct relationship type names, or empty array if node not found or has no relationships
+ *
+ * @example
+ * // Node alice has KNOWS (out) and WORKS_AT (out) relationships
+ * const relTypes = await getRelationshipTypes(db, 'Person', 'alice');
+ * // Returns: ['KNOWS', 'WORKS_AT']
+ *
+ * @example
+ * // Node with no relationships
+ * const relTypes = await getRelationshipTypes(db, 'Person', 'newuser');
+ * // Returns: []
+ */
+export async function getRelationshipTypes(
+  db: DatabaseConnection,
+  label: string,
+  name: string,
+  config: ConfigSchema = DEFAULT_CONFIG
+): Promise<string[]> {
+  // First, find the node to get its elementId
+  // This ensures consistent naming logic with the filesystem
+  const nodes = await getNodesByLabel(db, label, config);
+  const node = nodes.find((n) => n.name === name);
+
+  if (!node) {
+    return [];
+  }
+
+  // Query for distinct relationship types connected to this node
+  // Using elementId(n) to match the specific node
+  const result = await db.executeQuery<{ relType: string }>(
+    `MATCH (n)-[r]-() WHERE elementId(n) = $elementId RETURN DISTINCT type(r) AS relType`,
+    { elementId: node.elementId }
+  );
+
+  return result.records.map((record) => record.relType);
+}
