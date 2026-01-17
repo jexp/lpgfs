@@ -314,3 +314,23 @@
 ### Blockers/Notes
 - None - typecheck and all 46 tests pass
 - Prepared structure for subsequent readdir implementations (label, node, reltype, direction)
+
+## Task 017: Implement FUSE readdir() for label directory
+- **Status:** Completed
+- **PRD Reference:** Section 12.2 (Query Mapping)
+
+### Key Decisions
+- Added `readdirLabel()` function to handle `/Label` paths
+- Returns all nodes of the given label as directory entries
+- Uses existing `getNodesByLabel()` query with caching
+- Respects naming config (elementId or property strategy)
+- Collision handling applied automatically via `getNodesByLabel()`
+- Added 6 new tests covering: node listing, naming strategies, empty labels, trailing slash, collisions
+
+### Files Changed
+- src/fuse/handlers.ts: Added case for 'label' type, added readdirLabel() function
+- src/fuse/handlers.test.ts: Added label directory test suite with 6 tests
+
+### Blockers/Notes
+- None - typecheck and all 52 tests pass
+- Straightforward implementation leveraging existing query function

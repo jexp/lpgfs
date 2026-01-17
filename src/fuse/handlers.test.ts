@@ -22,6 +22,44 @@ function createMockDb(labels: string[] = []): DatabaseConnection {
   } as unknown as DatabaseConnection;
 }
 
+// Mock database connection with nodes for a specific label
+interface MockNode {
+  elementId: string;
+  properties: Record<string, unknown>;
+}
+
+function createMockDbWithNodes(
+  labels: string[],
+  nodesByLabel: Record<string, MockNode[]> = {}
+): DatabaseConnection {
+  return {
+    executeQuery: vi.fn().mockImplementation((query: string) => {
+      // Handle labels query
+      if (query.includes('db.labels()')) {
+        return Promise.resolve({
+          records: labels.map((label) => ({ label })),
+        });
+      }
+      // Handle nodes by label query
+      const labelMatch = query.match(/MATCH \(n:`(\w+)`\)/);
+      if (labelMatch) {
+        const label = labelMatch[1];
+        const nodes = nodesByLabel[label!] || [];
+        return Promise.resolve({
+          records: nodes.map((n) => ({
+            elementId: n.elementId,
+            properties: n.properties,
+          })),
+        });
+      }
+      return Promise.resolve({ records: [] });
+    }),
+    isConnected: vi.fn().mockReturnValue(true),
+    close: vi.fn().mockResolvedValue(undefined),
+    connect: vi.fn().mockResolvedValue(undefined),
+  } as unknown as DatabaseConnection;
+}
+
 describe('createHandlerContext', () => {
   it('creates context with defaults', () => {
     const db = createMockDb();
@@ -105,6 +143,122 @@ describe('readdir', () => {
 
       // executeQuery should only be called once
       expect(ctx.db.executeQuery).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('label directory (/Label)', () => {
+    it('returns all nodes as directories', async () => {
+      const db = createMockDbWithNodes(['Person'], {
+        Person: [
+          { elementId: '4:abc:0', properties: { username: 'alice', age: 30 } },
+          { elementId: '4:abc:1', properties: { username: 'bob', age: 25 } },
+          { elementId: '4:abc:2', properties: { username: 'carol', age: 35 } },
+        ],
+      });
+      ctx = createHandlerContext(db);
+
+      const entries = await readdir('/Person', ctx);
+
+      // All entries should be directories
+      expect(entries.every((e) => e.type === 'directory')).toBe(true);
+      expect(entries).toHaveLength(3);
+    });
+
+    it('uses elementId naming strategy by default', async () => {
+      const db = createMockDbWithNodes(['Person'], {
+        Person: [
+          { elementId: '4:abc:0', properties: { username: 'alice' } },
+          { elementId: '4:abc:1', properties: { username: 'bob' } },
+        ],
+      });
+      ctx = createHandlerContext(db);
+
+      const entries = await readdir('/Person', ctx);
+
+      // With default config (elementId naming), should use sanitized elementIds
+      // Colons are replaced with underscores
+      const names = entries.map((e) => e.name).sort();
+      expect(names).toEqual(['4_abc_0', '4_abc_1']);
+    });
+
+    it('uses property naming strategy when configured', async () => {
+      const db = createMockDbWithNodes(['Person'], {
+        Person: [
+          { elementId: '4:abc:0', properties: { username: 'alice' } },
+          { elementId: '4:abc:1', properties: { username: 'bob' } },
+        ],
+      });
+      const config = {
+        ...DEFAULT_CONFIG,
+        naming: {
+          default: 'property' as const,
+          overrides: {
+            nodes: {
+              Person: { property: 'username' },
+            },
+          },
+        },
+      };
+      ctx = createHandlerContext(db, { config });
+
+      const entries = await readdir('/Person', ctx);
+
+      const names = entries.map((e) => e.name).sort();
+      expect(names).toEqual(['alice', 'bob']);
+    });
+
+    it('handles empty label (no nodes)', async () => {
+      const db = createMockDbWithNodes(['Person', 'Company'], {
+        Person: [],
+        Company: [{ elementId: '4:xyz:0', properties: { name: 'Acme' } }],
+      });
+      ctx = createHandlerContext(db);
+
+      const entries = await readdir('/Person', ctx);
+
+      expect(entries).toHaveLength(0);
+    });
+
+    it('handles trailing slash', async () => {
+      const db = createMockDbWithNodes(['Person'], {
+        Person: [{ elementId: '4:abc:0', properties: { username: 'alice' } }],
+      });
+      ctx = createHandlerContext(db);
+
+      const entries = await readdir('/Person/', ctx);
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.name).toBe('4_abc_0');
+    });
+
+    it('handles collision with suffix_elementId strategy', async () => {
+      const db = createMockDbWithNodes(['Person'], {
+        Person: [
+          { elementId: '4:abc:0', properties: { username: 'alice' } },
+          { elementId: '4:abc:1', properties: { username: 'alice' } }, // Duplicate name
+        ],
+      });
+      const config = {
+        ...DEFAULT_CONFIG,
+        naming: {
+          default: 'property' as const,
+          overrides: {
+            nodes: {
+              Person: { property: 'username' },
+            },
+          },
+        },
+        collision: { strategy: 'suffix_elementId' as const },
+      };
+      ctx = createHandlerContext(db, { config });
+
+      const entries = await readdir('/Person', ctx);
+
+      // One should be 'alice', the other 'alice_<elementId>'
+      const names = entries.map((e) => e.name).sort();
+      expect(names).toHaveLength(2);
+      expect(names[0]).toBe('alice');
+      expect(names[1]).toMatch(/^alice_4_abc_/);
     });
   });
 });

@@ -9,7 +9,7 @@ import type { DatabaseConnection } from '../db/connection.js';
 import type { ConfigSchema, DirectoryEntry } from '../types/index.js';
 import { DEFAULT_CONFIG } from '../types/index.js';
 import { Cache } from '../cache/index.js';
-import { getLabels } from '../db/queries.js';
+import { getLabels, getNodesByLabel } from '../db/queries.js';
 import { parsePath, CONFIG_FILENAME } from '../core/path-parser.js';
 import { ConfigParser } from '../config/parser.js';
 
@@ -78,6 +78,9 @@ export async function readdir(
     case 'root':
       return readdirRoot(ctx);
 
+    case 'label':
+      return readdirLabel(pathContext.label!, ctx);
+
     default:
       // TODO: Implement other path types in subsequent tasks
       throw new Error(`readdir not implemented for path type: ${pathContext.type}`);
@@ -115,6 +118,40 @@ async function readdirRoot(ctx: HandlerContext): Promise<DirectoryEntry[]> {
   });
 
   return entries;
+}
+
+/**
+ * Read label directory contents.
+ *
+ * Returns all nodes with the specified label as directories.
+ * Node display names are determined by the naming configuration
+ * (elementId or property strategy) with collision handling.
+ *
+ * @param label - The node label (e.g., "Person", "Company")
+ * @param ctx - Handler context
+ * @returns Directory entries for each node
+ *
+ * @example
+ * // List all Person nodes
+ * const entries = await readdirLabel('Person', ctx);
+ * // Returns: [
+ * //   { name: 'alice', type: 'directory' },
+ * //   { name: 'bob', type: 'directory' },
+ * //   { name: 'carol', type: 'directory' }
+ * // ]
+ */
+async function readdirLabel(
+  label: string,
+  ctx: HandlerContext
+): Promise<DirectoryEntry[]> {
+  // Get all nodes for this label with display names
+  const nodes = await getNodesByLabel(ctx.db, label, ctx.config, ctx.cache);
+
+  // Return each node as a directory entry
+  return nodes.map((node) => ({
+    name: node.name,
+    type: 'directory' as const,
+  }));
 }
 
 /**
