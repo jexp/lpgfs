@@ -332,7 +332,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-011"
-completed: false
+completed: true
 ---
 # Caching Layer
 

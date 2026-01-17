@@ -203,3 +203,22 @@
 - None - typecheck passes
 - Uses same O(n) lookup pattern for source node; caching (task-014) will optimize this
 - Target node naming uses first label when node has multiple labels
+
+## Task 012: Implement query: get relationship properties
+- **Status:** Completed
+- **PRD Reference:** Section 5.2.4 (Relationship Properties)
+
+### Key Decisions
+- Created `getRelationshipProperties(db, relElementId)` function in src/db/queries.ts
+- Uses Cypher: `MATCH ()-[r]-() WHERE elementId(r) = $relElementId RETURN elementId(r), properties(r) LIMIT 1`
+- Returns `RelationshipPropertiesResult` interface: `{ _elementId: string, [key: string]: PropertyValue }`
+- Uses parameterized query for safety and performance
+- Uses LIMIT 1 since elementId uniquely identifies a relationship
+- Returns `null` if relationship not found
+
+### Files Changed
+- src/db/queries.ts: Added getRelationshipProperties() function and RelationshipPropertiesResult interface
+
+### Blockers/Notes
+- None - typecheck passes
+- Straightforward implementation since relationships are looked up by elementId (no naming strategy needed)

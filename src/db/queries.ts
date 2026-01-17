@@ -384,3 +384,62 @@ export async function getRelationships(
 
   return relationships;
 }
+
+/**
+ * Result from getRelationshipProperties: relationship properties with _elementId included.
+ */
+export interface RelationshipPropertiesResult {
+  /** The database element ID, prefixed with underscore as per PRD */
+  _elementId: string;
+  /** All other properties spread into the result */
+  [key: string]: PropertyValue;
+}
+
+/**
+ * Get relationship properties by its elementId.
+ *
+ * Returns the relationship's properties with _elementId field included.
+ *
+ * @param db Database connection
+ * @param relElementId The relationship's element ID
+ * @returns Relationship properties with _elementId, or null if not found
+ *
+ * @example
+ * // Get properties for a relationship
+ * const props = await getRelationshipProperties(db, '5:abc123:7');
+ * // Returns: { _elementId: '5:abc123:7', since: 2020, weight: 0.8 }
+ *
+ * @example
+ * // Not found
+ * const props = await getRelationshipProperties(db, 'nonexistent');
+ * // Returns: null
+ */
+export async function getRelationshipProperties(
+  db: DatabaseConnection,
+  relElementId: string
+): Promise<RelationshipPropertiesResult | null> {
+  // Query for the relationship by its elementId
+  // The relationship can be in any direction, so we use a generic pattern
+  const result = await db.executeQuery<{
+    elementId: string;
+    properties: Properties;
+  }>(
+    `MATCH ()-[r]-() WHERE elementId(r) = $relElementId
+     RETURN elementId(r) AS elementId, properties(r) AS properties
+     LIMIT 1`,
+    { relElementId }
+  );
+
+  // Check if relationship was found
+  if (result.records.length === 0) {
+    return null;
+  }
+
+  const record = result.records[0]!;
+
+  // Return properties with _elementId as per PRD section 5.2.4
+  return {
+    _elementId: record.elementId,
+    ...record.properties,
+  };
+}

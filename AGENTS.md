@@ -175,3 +175,11 @@ interface ConnectionOptions {
   - Handles collision resolution per target label group
   - Uses backticks to safely escape relationship type names in Cypher: `[r:\`KNOWS\`]`
   - First label used as primary when target node has multiple labels
+
+### Relationship Properties Query (src/db/queries.ts)
+- `getRelationshipProperties(db, relElementId)` - Get relationship properties by elementId
+  - Returns `RelationshipPropertiesResult` with `_elementId` plus all properties
+  - Returns `null` if relationship not found
+  - Uses Cypher: `MATCH ()-[r]-() WHERE elementId(r) = $relElementId RETURN elementId(r), properties(r) LIMIT 1`
+  - No naming strategy needed - relationships are always looked up by elementId
+  - Simpler than node properties since no collision handling is required
