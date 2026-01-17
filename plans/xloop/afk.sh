@@ -7,6 +7,8 @@ if [ -z "$1" ]; then
 fi
 
 for ((i=1; i<=$1; i++)); do
+  echo "==== Starting iteration $i of $1 ===="
+
   result=$(docker sandbox run --credentials host claude -p "@progress.txt @plans/xloop/prompt.md @plans/next.yml @AGENTS.md")
 
   echo "$result"
