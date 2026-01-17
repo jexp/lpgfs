@@ -28,7 +28,7 @@ src/
 ## Commands
 - `npm run tsc` - Type check without emitting
 - `npm run build` - Compile TypeScript to dist/
-- `npm test` - Run tests (to be configured)
+- `npm test` - Run tests with vitest
 
 ## Type Definitions
 
@@ -242,3 +242,37 @@ const nodes = await getNodesByLabel(db, 'Person', config, cache);
 // Second call returns cached result (no DB query)
 const labelsCached = await getLabels(db, cache);
 ```
+
+## Path Resolution
+
+### Path Parser (src/core/path-parser.ts)
+- `parsePath(path)` - Parse filesystem path to `PathContext` object
+- Returns typed `PathContext` with all extracted path components
+- Handles all path types: root, label, node, reltype, direction, target, properties
+
+### Path Types and Examples
+```
+/                              → { type: 'root' }
+/.lpgfs.yaml                   → { type: 'properties', isConfigFile: true }
+/Person                        → { type: 'label', label: 'Person' }
+/Person/alice                  → { type: 'node', label: 'Person', nodeName: 'alice' }
+/Person/alice/.properties.json → { type: 'properties', ..., isPropertiesFile: true }
+/Person/alice/KNOWS            → { type: 'reltype', ..., relType: 'KNOWS' }
+/Person/alice/KNOWS/OUT        → { type: 'direction', ..., direction: 'OUT' }
+/Person/alice/KNOWS/OUT/james  → { type: 'target', ..., targetName: 'james' }
+/Person/alice/KNOWS/OUT/.james.json → { type: 'properties', ..., isRelPropertiesFile: true }
+```
+
+### Helper Functions
+- `extractTargetFromRelPropertiesFilename(filename)` - Extract target name from `.james.json` → `james`
+- `pathContextToCacheKey(context)` - Generate cache key string from PathContext
+
+### Exported Constants
+- `CONFIG_FILENAME` = `.lpgfs.yaml`
+- `PROPERTIES_FILENAME` = `.properties.json`
+
+### Edge Case Handling
+- Trailing slashes are normalized (`/Person/` → `/Person`)
+- Empty paths are treated as root
+- Invalid directions are passed through (FUSE layer validates)
+- Self-referential and multi-relationship patterns are supported

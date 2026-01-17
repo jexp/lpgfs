@@ -268,3 +268,27 @@
 - None - typecheck passes
 - The cache integration is non-breaking; all functions work without a cache parameter
 - Nested functions (like getNodeProperties calling getNodesByLabel) pass the cache down for consistent caching
+
+## Task 015: Implement path parser
+- **Status:** Completed
+- **PRD Reference:** Section 12.3 (Path Resolution)
+
+### Key Decisions
+- Created `parsePath(path)` function that returns `PathContext` object
+- Parses all path types: root, label, node, reltype, direction, target, properties
+- Detects special files: `.lpgfs.yaml` (config), `.properties.json` (node props), `.targetName.json` (rel props)
+- Added `extractTargetFromRelPropertiesFilename()` helper for extracting target names from `.james.json` style filenames
+- Added `pathContextToCacheKey()` helper for generating cache keys from PathContext
+- Exported constants: `CONFIG_FILENAME`, `PROPERTIES_FILENAME`
+- Handles edge cases: trailing slashes, empty paths, self-referential relationships, multiple relationship suffixes
+- Added vitest as test framework with comprehensive test suite (37 tests)
+
+### Files Changed
+- src/core/path-parser.ts (new): Path parser implementation with helper functions
+- src/core/path-parser.test.ts (new): Comprehensive test suite
+- package.json: Added vitest, updated test script
+
+### Blockers/Notes
+- None - typecheck and all tests pass
+- Parser is defensive and handles invalid directions by returning them as-is (FUSE layer handles validation)
+- Deep paths beyond target are handled for symlink traversal scenarios

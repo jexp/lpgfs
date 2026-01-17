@@ -10,20 +10,21 @@
   "scripts": {
     "build": "tsc",
     "tsc": "tsc --noEmit",
-    "test": "echo \"No tests configured yet\" && exit 0",
+    "test": "vitest run",
     "start": "node dist/cli/index.js"
   },
   "dependencies": {
+    "lru-cache": "^11.0.2",
     "neo4j-driver": "^5.27.0",
-    "yaml": "^2.6.1",
-    "lru-cache": "^11.0.2"
+    "yaml": "^2.6.1"
   },
   "optionalDependencies": {
     "fuse-native": "^2.2.6"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^4.0.17"
   },
   "engines": {
     "node": ">=18.0.0"
