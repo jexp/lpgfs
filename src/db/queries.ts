@@ -8,10 +8,12 @@ import type { DatabaseConnection } from './connection.js';
 import {
   ConfigSchema,
   DEFAULT_CONFIG,
+  Direction,
   NamingStrategy,
   NodeQueryResult,
   Properties,
   PropertyValue,
+  RelationshipQueryResult,
 } from '../types/index.js';
 import { sanitize, sanitizeElementId } from '../config/sanitize.js';
 import { resolveCollisions } from '../config/collision.js';
@@ -242,4 +244,143 @@ export async function getRelationshipTypes(
   );
 
   return result.records.map((record) => record.relType);
+}
+
+/**
+ * Get relationships of a specific type and direction from a node.
+ *
+ * Returns target node info (name, label, elementId) plus relationship properties.
+ * Target node names are determined using the same naming logic as getNodesByLabel.
+ *
+ * @param db Database connection
+ * @param label The source node label
+ * @param name The source node display name (filesystem directory name)
+ * @param relType The relationship type (e.g., 'KNOWS', 'WORKS_AT')
+ * @param direction The direction: 'OUT' for outgoing, 'IN' for incoming
+ * @param config Configuration schema for naming
+ * @returns Array of relationship results with target info, or empty array if node not found
+ *
+ * @example
+ * // Get Alice's outgoing KNOWS relationships
+ * const rels = await getRelationships(db, 'Person', 'alice', 'KNOWS', 'OUT');
+ * // Returns: [{
+ * //   targetName: 'james',
+ * //   targetLabel: 'Person',
+ * //   targetElementId: '4:abc:1',
+ * //   relElementId: '5:abc:7',
+ * //   relProperties: { since: 2020 }
+ * // }]
+ *
+ * @example
+ * // Get Alice's incoming KNOWS relationships
+ * const rels = await getRelationships(db, 'Person', 'alice', 'KNOWS', 'IN');
+ * // Returns: [{ targetName: 'carol', targetLabel: 'Person', ... }]
+ *
+ * @example
+ * // Cross-label relationship (Person WORKS_AT Company)
+ * const rels = await getRelationships(db, 'Person', 'alice', 'WORKS_AT', 'OUT');
+ * // Returns: [{ targetName: 'acme', targetLabel: 'Company', ... }]
+ */
+export async function getRelationships(
+  db: DatabaseConnection,
+  label: string,
+  name: string,
+  relType: string,
+  direction: Direction,
+  config: ConfigSchema = DEFAULT_CONFIG
+): Promise<RelationshipQueryResult[]> {
+  // First, find the source node to get its elementId
+  const nodes = await getNodesByLabel(db, label, config);
+  const sourceNode = nodes.find((n) => n.name === name);
+
+  if (!sourceNode) {
+    return [];
+  }
+
+  // Build the Cypher query based on direction
+  // OUT: (n)-[r:TYPE]->(m) - n is start node, m is end node (target)
+  // IN: (n)<-[r:TYPE]-(m) - n is end node, m is start node (target)
+  const cypher =
+    direction === 'OUT'
+      ? `MATCH (n)-[r:\`${relType}\`]->(m) WHERE elementId(n) = $elementId
+         RETURN elementId(r) AS relElementId, properties(r) AS relProperties,
+                elementId(m) AS targetElementId, labels(m) AS targetLabels,
+                properties(m) AS targetProperties`
+      : `MATCH (n)<-[r:\`${relType}\`]-(m) WHERE elementId(n) = $elementId
+         RETURN elementId(r) AS relElementId, properties(r) AS relProperties,
+                elementId(m) AS targetElementId, labels(m) AS targetLabels,
+                properties(m) AS targetProperties`;
+
+  const result = await db.executeQuery<{
+    relElementId: string;
+    relProperties: Properties;
+    targetElementId: string;
+    targetLabels: string[];
+    targetProperties: Properties;
+  }>(cypher, { elementId: sourceNode.elementId });
+
+  if (result.records.length === 0) {
+    return [];
+  }
+
+  // For each target node, we need to determine its display name
+  // The naming strategy depends on the target node's label
+  const relationships: RelationshipQueryResult[] = [];
+
+  for (const record of result.records) {
+    // Use the first label as the primary label for naming purposes
+    // (Neo4j nodes can have multiple labels, but we use the first one for directory structure)
+    const targetLabel = record.targetLabels[0] || 'Unknown';
+
+    // Determine target node's display name using the same naming logic
+    const namingStrategy = getNamingStrategy(targetLabel, config);
+    const propertyName = getPropertyName(targetLabel, config);
+
+    let targetName: string;
+    if (namingStrategy === 'property' && propertyName) {
+      const propValue = record.targetProperties[propertyName];
+      if (propValue === undefined) {
+        targetName = sanitizeElementId(record.targetElementId, config.sanitization);
+      } else {
+        targetName = sanitize(propValue, config.sanitization);
+      }
+    } else {
+      targetName = sanitizeElementId(record.targetElementId, config.sanitization);
+    }
+
+    relationships.push({
+      targetName,
+      targetLabel,
+      targetElementId: record.targetElementId,
+      relElementId: record.relElementId,
+      relProperties: record.relProperties,
+    });
+  }
+
+  // Handle collisions within the same label (targets with same display name)
+  // Group by target label since collisions are per-label
+  const byLabel = new Map<string, number[]>();
+  for (let i = 0; i < relationships.length; i++) {
+    const rel = relationships[i]!;
+    const indices = byLabel.get(rel.targetLabel) || [];
+    indices.push(i);
+    byLabel.set(rel.targetLabel, indices);
+  }
+
+  // Resolve collisions within each label group
+  for (const [targetLabel, indices] of byLabel) {
+    const items = indices.map((i) => ({
+      baseName: relationships[i]!.targetName,
+      elementId: relationships[i]!.targetElementId,
+    }));
+
+    const resolvedNames = resolveCollisions(items, targetLabel, config.collision);
+
+    // Update with resolved names
+    for (let j = 0; j < indices.length; j++) {
+      relationships[indices[j]!]!.targetName = resolvedNames[j]!;
+    }
+  }
+
+  return relationships;
 }

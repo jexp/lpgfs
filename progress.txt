@@ -182,3 +182,24 @@
 ### Blockers/Notes
 - None - typecheck passes
 - Note: Uses same O(n) lookup pattern as getNodeProperties; caching (task-014) will optimize this
+
+## Task 011: Implement query: list relationships by type & direction
+- **Status:** Completed
+- **PRD Reference:** Section 5.2 (Relationship Structure), Section 12.2 (Query Mapping)
+
+### Key Decisions
+- Created `getRelationships(db, label, name, relType, direction, config)` function in src/db/queries.ts
+- Uses Cypher patterns: `(n)-[r:TYPE]->(m)` for OUT, `(n)<-[r:TYPE]-(m)` for IN
+- Returns `RelationshipQueryResult[]` with targetName, targetLabel, targetElementId, relElementId, relProperties
+- Applies naming strategy to target nodes based on target label (supports cross-label relationships)
+- Uses backticks to safely escape relationship type names in Cypher
+- Handles collision resolution per target label group
+- Returns empty array if source node not found or has no relationships of that type/direction
+
+### Files Changed
+- src/db/queries.ts: Added getRelationships() function, imported Direction and RelationshipQueryResult types
+
+### Blockers/Notes
+- None - typecheck passes
+- Uses same O(n) lookup pattern for source node; caching (task-014) will optimize this
+- Target node naming uses first label when node has multiple labels

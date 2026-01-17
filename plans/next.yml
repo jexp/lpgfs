@@ -306,7 +306,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-010"
-completed: false
+completed: true
 ---
 id: "task-012"
 title: "Implement query: get relationship properties"

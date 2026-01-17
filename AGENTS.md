@@ -165,3 +165,13 @@ interface ConnectionOptions {
   - Queries both outgoing and incoming relationships combined
   - Uses parameterized Cypher: `MATCH (n)-[r]-() WHERE elementId(n) = $elementId RETURN DISTINCT type(r)`
   - Reuses `getNodesByLabel()` for consistent naming logic with filesystem display names
+
+### Relationships Query (src/db/queries.ts)
+- `getRelationships(db, label, name, relType, direction, config?)` - Get relationships of a specific type and direction
+  - Returns `RelationshipQueryResult[]` with target node info and relationship properties
+  - Direction 'OUT': Queries `(n)-[r:TYPE]->(m)` where n is source node
+  - Direction 'IN': Queries `(n)<-[r:TYPE]-(m)` where n is source node
+  - Target node names determined using target label's naming strategy (supports cross-label relationships)
+  - Handles collision resolution per target label group
+  - Uses backticks to safely escape relationship type names in Cypher: `[r:\`KNOWS\`]`
+  - First label used as primary when target node has multiple labels
