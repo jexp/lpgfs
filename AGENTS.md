@@ -183,3 +183,31 @@ interface ConnectionOptions {
   - Uses Cypher: `MATCH ()-[r]-() WHERE elementId(r) = $relElementId RETURN elementId(r), properties(r) LIMIT 1`
   - No naming strategy needed - relationships are always looked up by elementId
   - Simpler than node properties since no collision handling is required
+
+## Caching Layer
+
+### Cache Class (src/cache/index.ts)
+- `Cache` class wraps lru-cache with automatic TTL-based expiration
+- Uses `ttlAutopurge: true` for automatic cleanup of expired entries
+- Methods: `get<T>(key)`, `set<T>(key, value, ttlSeconds?)`, `has(key)`, `delete(key)`, `clear()`
+- `get()` returns `undefined` on cache miss (not `null`)
+- TTL is determined per-entry based on key prefix
+
+### Cache Key Builder
+- `cacheKey.labels()` → `"labels"`
+- `cacheKey.nodes(label)` → `"nodes:Person"`
+- `cacheKey.props(elementId)` → `"props:4:abc:0"`
+- `cacheKey.reltypes(elementId)` → `"reltypes:4:abc:0"`
+- `cacheKey.rels(elementId, relType, direction)` → `"rels:4:abc:0:KNOWS:OUT"`
+
+### Default TTL Values (from DEFAULT_CACHE_TTL)
+- labels: 60s
+- nodes: 30s
+- properties: 10s
+- relationships: 10s
+- symlinks: 60s
+
+### lru-cache Type Constraint
+- lru-cache v11 requires value types to extend `{}` (not `unknown`)
+- Workaround: Use a wrapper type `{ data: unknown }` internally
+- This is transparent to the API consumer

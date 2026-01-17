@@ -362,7 +362,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-002"
-completed: false
+completed: true
 ---
 id: "task-014"
 title: "Integrate cache with database queries"

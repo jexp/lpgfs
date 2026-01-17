@@ -222,3 +222,22 @@
 ### Blockers/Notes
 - None - typecheck passes
 - Straightforward implementation since relationships are looked up by elementId (no naming strategy needed)
+
+## Task 013: Implement in-memory cache with TTL
+- **Status:** Completed
+- **PRD Reference:** Section 12.4 (Caching)
+
+### Key Decisions
+- Created `Cache` class wrapping lru-cache with TTL support
+- Uses `ttlAutopurge: true` for automatic expiration cleanup
+- TTL determined per-entry based on key prefix (labels/nodes/props/reltypes/rels)
+- Added `cacheKey` utility object for building consistent cache keys
+- Cache key prefixes: `labels`, `nodes:Label`, `props:elementId`, `reltypes:elementId`, `rels:elementId:relType:direction`
+- Used wrapper type `CacheValue = { data: unknown }` to satisfy lru-cache's type constraint
+
+### Files Changed
+- src/cache/index.ts: New Cache class with get, set, has, delete, clear methods and cacheKey builder
+
+### Blockers/Notes
+- None - typecheck passes
+- TTL defaults from DEFAULT_CACHE_TTL: labels=60s, nodes=30s, properties=10s, relationships=10s, symlinks=60s
