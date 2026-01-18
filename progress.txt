@@ -471,3 +471,28 @@
 - None - typecheck and all 122 tests pass
 - Implementation allows `cat /Person/alice/.properties.json` to return valid JSON with _elementId field
 - Partial read support enables efficient streaming of large files
+
+## Task 024: Implement FUSE read() for relationship properties
+- **Status:** Completed
+- **PRD Reference:** Section 5.2.4 (Canonical Ownership)
+
+### Key Decisions
+- Added `readRelationshipProperties()` helper function for reading `.targetName.json` files
+- Per PRD section 5.2.4 (Canonical Ownership):
+  - OUT side: Returns full relationship properties `{ _elementId, ...properties }` via `getRelationshipProperties()`
+  - IN side: Returns reference pointer `{ _ref: relElementId }` to avoid duplication
+- Uses same target name suffix logic as `readdirDirection()` and `getattrTarget()` for consistency
+- Supports partial reads with offset/length like node properties
+- Formatted JSON output with 2-space indentation for readability
+- Works with both elementId and property naming strategies
+- Handles cross-label relationships correctly
+
+### Files Changed
+- src/fuse/handlers.ts: Added `readRelationshipProperties()` helper, imported `getRelationshipProperties` from queries
+- src/fuse/handlers.test.ts: Extended mock to handle relationship properties queries, added 11 new tests covering OUT properties, IN _ref, property naming, multiple rels with suffix, cross-label, error handling, and partial reads
+
+### Blockers/Notes
+- None - typecheck and all 133 tests pass
+- Implementation enables:
+  - `cat /Person/alice/KNOWS/OUT/.james.json` → `{ "_elementId": "5:abc:0", "since": 2020 }`
+  - `cat /Person/james/KNOWS/IN/.alice.json` → `{ "_ref": "5:abc:0" }`

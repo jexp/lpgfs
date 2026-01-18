@@ -9,7 +9,7 @@ import type { DatabaseConnection } from '../db/connection.js';
 import type { ConfigSchema, DirectoryEntry, StatResult } from '../types/index.js';
 import { DEFAULT_CONFIG, POSIX_ERRORS, LpgfsError } from '../types/index.js';
 import { Cache } from '../cache/index.js';
-import { getLabels, getNodesByLabel, getRelationshipTypes, getRelationships, getNodeProperties } from '../db/queries.js';
+import { getLabels, getNodesByLabel, getRelationshipTypes, getRelationships, getNodeProperties, getRelationshipProperties } from '../db/queries.js';
 import { parsePath, CONFIG_FILENAME, PROPERTIES_FILENAME, extractTargetFromRelPropertiesFilename } from '../core/path-parser.js';
 import type { Direction } from '../types/index.js';
 import { ConfigParser } from '../config/parser.js';
@@ -856,11 +856,22 @@ export async function read(
       ctx
     );
   }
-  // Relationship properties file (.targetName.json) - to be implemented in task-024
-  else if (pathContext.isRelPropertiesFile) {
-    throw new LpgfsError(
-      'Relationship properties read not yet implemented',
-      POSIX_ERRORS.ENOENT
+  // Relationship properties file (.targetName.json)
+  else if (
+    pathContext.isRelPropertiesFile &&
+    pathContext.label &&
+    pathContext.nodeName &&
+    pathContext.relType &&
+    pathContext.direction &&
+    pathContext.targetName
+  ) {
+    content = await readRelationshipProperties(
+      pathContext.label,
+      pathContext.nodeName,
+      pathContext.relType,
+      pathContext.direction,
+      pathContext.targetName,
+      ctx
     );
   }
   // Unknown file type
@@ -913,4 +924,97 @@ async function readNodeProperties(
 
   // Return formatted JSON with 2-space indentation for readability
   return JSON.stringify(props, null, 2);
+}
+
+/**
+ * Read relationship properties and return as JSON string.
+ *
+ * Per PRD section 5.2.4 (Canonical Ownership):
+ * - OUT side: Returns full properties { _elementId, ...properties }
+ * - IN side: Returns reference { _ref: relElementId } pointing to canonical location
+ *
+ * @param label - The source node label (e.g., "Person")
+ * @param nodeName - The source node display name (e.g., "alice")
+ * @param relType - The relationship type (e.g., "KNOWS")
+ * @param direction - The direction: 'OUT' or 'IN'
+ * @param targetName - The target display name including any suffix (e.g., "james" or "james_1")
+ * @param ctx - Handler context
+ * @returns JSON string with properties (OUT) or _ref (IN)
+ * @throws LpgfsError with ENOENT if relationship doesn't exist
+ */
+async function readRelationshipProperties(
+  label: string,
+  nodeName: string,
+  relType: string,
+  direction: Direction,
+  targetName: string,
+  ctx: HandlerContext
+): Promise<string> {
+  // Get relationships to find the matching one
+  const relationships = await getRelationships(
+    ctx.db,
+    label,
+    nodeName,
+    relType,
+    direction,
+    ctx.config,
+    ctx.cache
+  );
+
+  if (relationships.length === 0) {
+    throw new LpgfsError(
+      `No relationships found: ${label}/${nodeName}/${relType}/${direction}`,
+      POSIX_ERRORS.ENOENT
+    );
+  }
+
+  // Find the relationship using the same suffix logic as readdirDirection and getattrTarget
+  const targetNameCounts = new Map<string, number>();
+  let matchedRel = null;
+
+  for (const rel of relationships) {
+    const baseName = rel.targetName;
+    const count = targetNameCounts.get(baseName) || 0;
+    targetNameCounts.set(baseName, count + 1);
+
+    const displayName = count === 0 ? baseName : `${baseName}_${count}`;
+    if (displayName === targetName) {
+      matchedRel = rel;
+      break;
+    }
+  }
+
+  if (!matchedRel) {
+    throw new LpgfsError(
+      `Relationship not found: ${label}/${nodeName}/${relType}/${direction}/.${targetName}.json`,
+      POSIX_ERRORS.ENOENT
+    );
+  }
+
+  // Per PRD section 5.2.4: OUT side has canonical properties, IN side has _ref
+  if (direction === 'OUT') {
+    // Fetch full relationship properties from database
+    const props = await getRelationshipProperties(
+      ctx.db,
+      matchedRel.relElementId,
+      ctx.cache
+    );
+
+    if (props === null) {
+      // This shouldn't happen if we found the relationship above, but handle it
+      throw new LpgfsError(
+        `Relationship properties not found: ${matchedRel.relElementId}`,
+        POSIX_ERRORS.ENOENT
+      );
+    }
+
+    return JSON.stringify(props, null, 2);
+  } else {
+    // IN side: return reference to the canonical OUT location
+    // The _ref points to the relationship elementId
+    const ref = {
+      _ref: matchedRel.relElementId,
+    };
+    return JSON.stringify(ref, null, 2);
+  }
 }

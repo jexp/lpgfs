@@ -382,6 +382,24 @@ const stat = await getattr('/Person', ctx);
 - Uses Buffer for byte-accurate UTF-8 slicing
 - Returns empty string if offset exceeds file size
 
+**Relationship properties format (OUT side - canonical):**
+```json
+{
+  "_elementId": "5:abc:0",
+  "since": 2020,
+  "weight": 0.8
+}
+```
+
+**Relationship properties format (IN side - reference):**
+```json
+{
+  "_ref": "5:abc:0"
+}
+```
+
+Per PRD section 5.2.4, the OUT side owns the canonical properties. The IN side returns a `_ref` pointer to avoid duplication and to indicate where the full properties can be found.
+
 **Usage Example:**
 ```typescript
 // Full read
@@ -391,4 +409,12 @@ console.log(result.size);    // Total bytes
 
 // Partial read (first 100 bytes)
 const partial = await read('/Person/alice/.properties.json', ctx, 0, 100);
+
+// Read relationship properties (OUT - full properties)
+const relProps = await read('/Person/alice/KNOWS/OUT/.james.json', ctx);
+// Returns: { "_elementId": "5:abc:0", "since": 2020, ... }
+
+// Read relationship properties (IN - reference)
+const relRef = await read('/Person/james/KNOWS/IN/.alice.json', ctx);
+// Returns: { "_ref": "5:abc:0" }
 ```

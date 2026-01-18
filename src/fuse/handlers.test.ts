@@ -44,11 +44,17 @@ interface MockRelationship {
  */
 type RelationshipKey = string;
 
+/**
+ * Map of relationship elementId to its properties
+ */
+type RelPropertiesMap = Record<string, Record<string, unknown>>;
+
 function createMockDbWithNodes(
   labels: string[],
   nodesByLabel: Record<string, MockNode[]> = {},
   relTypesByElementId: Record<string, string[]> = {},
-  relationshipsByKey: Record<RelationshipKey, MockRelationship[]> = {}
+  relationshipsByKey: Record<RelationshipKey, MockRelationship[]> = {},
+  relPropertiesByElementId: RelPropertiesMap = {}
 ): DatabaseConnection {
   return {
     executeQuery: vi.fn().mockImplementation((query: string, params?: Record<string, unknown>) => {
@@ -77,6 +83,27 @@ function createMockDbWithNodes(
         return Promise.resolve({
           records: relTypes.map((relType) => ({ relType })),
         });
+      }
+      // Handle relationship properties query (for getRelationshipProperties)
+      if (query.includes('MATCH ()-[r]-()') && query.includes('WHERE elementId(r)') && params?.relElementId) {
+        const relElementId = params.relElementId as string;
+        const props = relPropertiesByElementId[relElementId];
+        if (props) {
+          return Promise.resolve({
+            records: [{ elementId: relElementId, properties: props }],
+          });
+        }
+        // Try to find it in the relationships data
+        for (const key of Object.keys(relationshipsByKey)) {
+          const rels = relationshipsByKey[key] || [];
+          const rel = rels.find((r) => r.relElementId === relElementId);
+          if (rel) {
+            return Promise.resolve({
+              records: [{ elementId: relElementId, properties: rel.relProperties }],
+            });
+          }
+        }
+        return Promise.resolve({ records: [] });
       }
       // Handle relationships query (OUT direction)
       const outMatch = query.match(/MATCH \(n\)-\[r:`(\w+)`\]->\(m\)/);
@@ -1864,6 +1891,414 @@ describe('read', () => {
         (call) => typeof call[0] === 'string' && call[0].includes('MATCH (n:`Person`)')
       );
       expect(nodeCalls).toHaveLength(1);
+    });
+  });
+
+  describe('relationship properties (.targetName.json)', () => {
+    describe('OUT direction (canonical properties)', () => {
+      it('returns full relationship properties as JSON', async () => {
+        const db = createMockDbWithNodes(
+          ['Person'],
+          {
+            Person: [
+              { elementId: '4:abc:0', properties: { username: 'alice' } },
+              { elementId: '4:abc:1', properties: { username: 'james' } },
+            ],
+          },
+          {
+            '4:abc:0': ['KNOWS'],
+          },
+          {
+            '4:abc:0:KNOWS:OUT': [
+              {
+                relElementId: '5:abc:0',
+                relProperties: { since: 2020, weight: 0.8 },
+                targetElementId: '4:abc:1',
+                targetLabels: ['Person'],
+                targetProperties: { username: 'james' },
+              },
+            ],
+          }
+        );
+        ctx = createHandlerContext(db);
+
+        const result = await read('/Person/4_abc_0/KNOWS/OUT/.4_abc_1.json', ctx);
+
+        const parsed = JSON.parse(result.content);
+        expect(parsed._elementId).toBe('5:abc:0');
+        expect(parsed.since).toBe(2020);
+        expect(parsed.weight).toBe(0.8);
+      });
+
+      it('returns formatted JSON with indentation', async () => {
+        const db = createMockDbWithNodes(
+          ['Person'],
+          {
+            Person: [
+              { elementId: '4:abc:0', properties: { username: 'alice' } },
+              { elementId: '4:abc:1', properties: { username: 'james' } },
+            ],
+          },
+          {
+            '4:abc:0': ['KNOWS'],
+          },
+          {
+            '4:abc:0:KNOWS:OUT': [
+              {
+                relElementId: '5:abc:0',
+                relProperties: { since: 2020 },
+                targetElementId: '4:abc:1',
+                targetLabels: ['Person'],
+                targetProperties: { username: 'james' },
+              },
+            ],
+          }
+        );
+        ctx = createHandlerContext(db);
+
+        const result = await read('/Person/4_abc_0/KNOWS/OUT/.4_abc_1.json', ctx);
+
+        expect(result.content).toContain('\n');
+        expect(result.content).toContain('  ');
+      });
+
+      it('works with property naming strategy', async () => {
+        const db = createMockDbWithNodes(
+          ['Person'],
+          {
+            Person: [
+              { elementId: '4:abc:0', properties: { username: 'alice' } },
+              { elementId: '4:abc:1', properties: { username: 'james' } },
+            ],
+          },
+          {
+            '4:abc:0': ['KNOWS'],
+          },
+          {
+            '4:abc:0:KNOWS:OUT': [
+              {
+                relElementId: '5:abc:0',
+                relProperties: { since: 2020 },
+                targetElementId: '4:abc:1',
+                targetLabels: ['Person'],
+                targetProperties: { username: 'james' },
+              },
+            ],
+          }
+        );
+        const config = {
+          ...DEFAULT_CONFIG,
+          naming: {
+            default: 'property' as const,
+            overrides: {
+              nodes: {
+                Person: { property: 'username' },
+              },
+            },
+          },
+        };
+        ctx = createHandlerContext(db, { config });
+
+        const result = await read('/Person/alice/KNOWS/OUT/.james.json', ctx);
+
+        const parsed = JSON.parse(result.content);
+        expect(parsed._elementId).toBe('5:abc:0');
+        expect(parsed.since).toBe(2020);
+      });
+
+      it('handles multiple relationships to same target with suffix', async () => {
+        const db = createMockDbWithNodes(
+          ['Person'],
+          {
+            Person: [
+              { elementId: '4:abc:0', properties: { username: 'alice' } },
+              { elementId: '4:abc:1', properties: { username: 'james' } },
+            ],
+          },
+          {
+            '4:abc:0': ['KNOWS'],
+          },
+          {
+            '4:abc:0:KNOWS:OUT': [
+              {
+                relElementId: '5:abc:0',
+                relProperties: { context: 'work' },
+                targetElementId: '4:abc:1',
+                targetLabels: ['Person'],
+                targetProperties: { username: 'james' },
+              },
+              {
+                relElementId: '5:abc:1',
+                relProperties: { context: 'school' },
+                targetElementId: '4:abc:1',
+                targetLabels: ['Person'],
+                targetProperties: { username: 'james' },
+              },
+            ],
+          }
+        );
+        ctx = createHandlerContext(db);
+
+        // First relationship (base name)
+        const result1 = await read('/Person/4_abc_0/KNOWS/OUT/.4_abc_1.json', ctx);
+        const parsed1 = JSON.parse(result1.content);
+        expect(parsed1._elementId).toBe('5:abc:0');
+        expect(parsed1.context).toBe('work');
+
+        // Second relationship (with suffix)
+        const result2 = await read('/Person/4_abc_0/KNOWS/OUT/.4_abc_1_1.json', ctx);
+        const parsed2 = JSON.parse(result2.content);
+        expect(parsed2._elementId).toBe('5:abc:1');
+        expect(parsed2.context).toBe('school');
+      });
+
+      it('handles cross-label relationships', async () => {
+        const db = createMockDbWithNodes(
+          ['Person', 'Company'],
+          {
+            Person: [
+              { elementId: '4:abc:0', properties: { username: 'alice' } },
+            ],
+            Company: [
+              { elementId: '4:xyz:0', properties: { name: 'Acme' } },
+            ],
+          },
+          {
+            '4:abc:0': ['WORKS_AT'],
+          },
+          {
+            '4:abc:0:WORKS_AT:OUT': [
+              {
+                relElementId: '5:abc:0',
+                relProperties: { role: 'Engineer', since: 2019 },
+                targetElementId: '4:xyz:0',
+                targetLabels: ['Company'],
+                targetProperties: { name: 'Acme' },
+              },
+            ],
+          }
+        );
+        ctx = createHandlerContext(db);
+
+        const result = await read('/Person/4_abc_0/WORKS_AT/OUT/.4_xyz_0.json', ctx);
+
+        const parsed = JSON.parse(result.content);
+        expect(parsed._elementId).toBe('5:abc:0');
+        expect(parsed.role).toBe('Engineer');
+        expect(parsed.since).toBe(2019);
+      });
+    });
+
+    describe('IN direction (_ref pointer)', () => {
+      it('returns _ref pointing to relationship elementId', async () => {
+        const db = createMockDbWithNodes(
+          ['Person'],
+          {
+            Person: [
+              { elementId: '4:abc:0', properties: { username: 'alice' } },
+              { elementId: '4:abc:1', properties: { username: 'james' } },
+            ],
+          },
+          {
+            '4:abc:1': ['KNOWS'],
+          },
+          {
+            '4:abc:1:KNOWS:IN': [
+              {
+                relElementId: '5:abc:0',
+                relProperties: { since: 2020 },
+                targetElementId: '4:abc:0',
+                targetLabels: ['Person'],
+                targetProperties: { username: 'alice' },
+              },
+            ],
+          }
+        );
+        ctx = createHandlerContext(db);
+
+        const result = await read('/Person/4_abc_1/KNOWS/IN/.4_abc_0.json', ctx);
+
+        const parsed = JSON.parse(result.content);
+        expect(parsed._ref).toBe('5:abc:0');
+        // Should NOT have the actual properties
+        expect(parsed.since).toBeUndefined();
+        expect(parsed._elementId).toBeUndefined();
+      });
+
+      it('works with property naming strategy', async () => {
+        const db = createMockDbWithNodes(
+          ['Person'],
+          {
+            Person: [
+              { elementId: '4:abc:0', properties: { username: 'alice' } },
+              { elementId: '4:abc:1', properties: { username: 'james' } },
+            ],
+          },
+          {
+            '4:abc:1': ['KNOWS'],
+          },
+          {
+            '4:abc:1:KNOWS:IN': [
+              {
+                relElementId: '5:abc:0',
+                relProperties: { since: 2020 },
+                targetElementId: '4:abc:0',
+                targetLabels: ['Person'],
+                targetProperties: { username: 'alice' },
+              },
+            ],
+          }
+        );
+        const config = {
+          ...DEFAULT_CONFIG,
+          naming: {
+            default: 'property' as const,
+            overrides: {
+              nodes: {
+                Person: { property: 'username' },
+              },
+            },
+          },
+        };
+        ctx = createHandlerContext(db, { config });
+
+        const result = await read('/Person/james/KNOWS/IN/.alice.json', ctx);
+
+        const parsed = JSON.parse(result.content);
+        expect(parsed._ref).toBe('5:abc:0');
+      });
+
+      it('handles multiple incoming relationships with suffix', async () => {
+        const db = createMockDbWithNodes(
+          ['Person'],
+          {
+            Person: [
+              { elementId: '4:abc:0', properties: { username: 'alice' } },
+              { elementId: '4:abc:1', properties: { username: 'james' } },
+            ],
+          },
+          {
+            '4:abc:1': ['KNOWS'],
+          },
+          {
+            '4:abc:1:KNOWS:IN': [
+              {
+                relElementId: '5:abc:0',
+                relProperties: { context: 'work' },
+                targetElementId: '4:abc:0',
+                targetLabels: ['Person'],
+                targetProperties: { username: 'alice' },
+              },
+              {
+                relElementId: '5:abc:1',
+                relProperties: { context: 'school' },
+                targetElementId: '4:abc:0',
+                targetLabels: ['Person'],
+                targetProperties: { username: 'alice' },
+              },
+            ],
+          }
+        );
+        ctx = createHandlerContext(db);
+
+        // First relationship (base name)
+        const result1 = await read('/Person/4_abc_1/KNOWS/IN/.4_abc_0.json', ctx);
+        const parsed1 = JSON.parse(result1.content);
+        expect(parsed1._ref).toBe('5:abc:0');
+
+        // Second relationship (with suffix)
+        const result2 = await read('/Person/4_abc_1/KNOWS/IN/.4_abc_0_1.json', ctx);
+        const parsed2 = JSON.parse(result2.content);
+        expect(parsed2._ref).toBe('5:abc:1');
+      });
+    });
+
+    describe('error handling', () => {
+      it('throws ENOENT for non-existent relationship properties file', async () => {
+        const db = createMockDbWithNodes(
+          ['Person'],
+          {
+            Person: [
+              { elementId: '4:abc:0', properties: { username: 'alice' } },
+              { elementId: '4:abc:1', properties: { username: 'james' } },
+            ],
+          },
+          {
+            '4:abc:0': ['KNOWS'],
+          },
+          {
+            '4:abc:0:KNOWS:OUT': [
+              {
+                relElementId: '5:abc:0',
+                relProperties: {},
+                targetElementId: '4:abc:1',
+                targetLabels: ['Person'],
+                targetProperties: { username: 'james' },
+              },
+            ],
+          }
+        );
+        ctx = createHandlerContext(db);
+
+        await expect(read('/Person/4_abc_0/KNOWS/OUT/.nonexistent.json', ctx)).rejects.toMatchObject({
+          code: POSIX_ERRORS.ENOENT,
+        });
+      });
+
+      it('throws ENOENT when no relationships exist', async () => {
+        const db = createMockDbWithNodes(
+          ['Person'],
+          {
+            Person: [
+              { elementId: '4:abc:0', properties: { username: 'alice' } },
+            ],
+          },
+          {
+            '4:abc:0': ['KNOWS'],
+          },
+          {} // No relationships
+        );
+        ctx = createHandlerContext(db);
+
+        await expect(read('/Person/4_abc_0/KNOWS/OUT/.someone.json', ctx)).rejects.toMatchObject({
+          code: POSIX_ERRORS.ENOENT,
+        });
+      });
+    });
+
+    describe('partial reads', () => {
+      it('handles offset and length for relationship properties', async () => {
+        const db = createMockDbWithNodes(
+          ['Person'],
+          {
+            Person: [
+              { elementId: '4:abc:0', properties: { username: 'alice' } },
+              { elementId: '4:abc:1', properties: { username: 'james' } },
+            ],
+          },
+          {
+            '4:abc:0': ['KNOWS'],
+          },
+          {
+            '4:abc:0:KNOWS:OUT': [
+              {
+                relElementId: '5:abc:0',
+                relProperties: { since: 2020, notes: 'Met at conference' },
+                targetElementId: '4:abc:1',
+                targetLabels: ['Person'],
+                targetProperties: { username: 'james' },
+              },
+            ],
+          }
+        );
+        ctx = createHandlerContext(db);
+
+        const fullResult = await read('/Person/4_abc_0/KNOWS/OUT/.4_abc_1.json', ctx);
+        const partialResult = await read('/Person/4_abc_0/KNOWS/OUT/.4_abc_1.json', ctx, 0, 20);
+
+        expect(partialResult.content.length).toBeLessThanOrEqual(20);
+        expect(partialResult.size).toBe(fullResult.size);
+      });
     });
   });
 });
