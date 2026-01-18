@@ -580,3 +580,37 @@
 - None - typecheck and all 176 tests pass
 - Actual mount/unmount operations not yet implemented (see task-028)
 - CLI shows helpful messages when mount is attempted
+
+## Task 028: Implement FUSE mount/unmount
+- **Status:** Completed
+- **PRD Reference:** Section 12.6 (Daemon Lifecycle)
+
+### Key Decisions
+- Created `Daemon` class in `src/core/daemon.ts` that manages the full FUSE lifecycle
+- Daemon responsibilities per PRD section 12.6:
+  1. Parse configuration file via `ConfigParser.loadOrDefault()`
+  2. Establish database connection via `connect()` from db/connection.ts
+  3. Register FUSE handlers by creating `FuseOps` object mapping to our handlers
+  4. Mount filesystem at specified path using fuse-native
+  5. Handle signals (SIGTERM, SIGINT) for clean unmount
+  6. Maintain cache and connection health
+- FUSE operations mapped to our handlers:
+  - `readdir` → `handlers.readdir()`
+  - `getattr` → `handlers.getattr()` with mode conversion (S_IFDIR, S_IFREG, S_IFLNK)
+  - `read` → `handlers.read()` with buffer copy
+  - `readlink` → `handlers.readlink()`
+  - All write operations return EROFS
+- Lazy loading of fuse-native since it's an optional dependency
+- `unmount()` function uses `fusermount -u` (Linux) or `umount` (macOS)
+- Daemon states: 'stopped' | 'starting' | 'running' | 'stopping'
+- Proper cleanup on failure or shutdown (close DB, clear cache, unregister signals)
+
+### Files Changed
+- src/core/daemon.ts (new): Daemon class with start(), stop(), createFuseOps(), signal handling
+- src/core/daemon.test.ts (new): Test suite with 10 tests for daemon structure
+- src/cli/index.ts: Updated to use Daemon for mount/unmount commands
+
+### Blockers/Notes
+- None - typecheck and all 362 tests pass
+- True background daemonization (fork) not implemented; use --foreground flag
+- fuse-native requires FUSE libraries installed on target system

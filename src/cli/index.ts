@@ -16,6 +16,7 @@ import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { MountOptions } from '../types/index.js';
 import { DEFAULT_MOUNT_OPTIONS } from '../types/index.js';
+import { Daemon, unmount as unmountFs } from '../core/daemon.js';
 
 /**
  * Parsed mount command result.
@@ -274,21 +275,47 @@ export async function main(): Promise<void> {
 
     if (result.command === 'mount') {
       const { mountpoint, options } = result.data;
-      console.log(`Mounting LPGFS at ${mountpoint}`);
-      console.log('Options:', JSON.stringify(options, null, 2));
-      // TODO: Implement actual mount in task-028
-      console.log(
-        'Mount operation not yet implemented. See task-028 for FUSE mount/unmount.'
-      );
+
+      if (options.debug) {
+        console.log(`[lpgfs] Mounting at ${mountpoint}`);
+        console.log('[lpgfs] Options:', JSON.stringify(options, null, 2));
+      }
+
+      // Create and start the daemon
+      const daemon = new Daemon({
+        mountpoint,
+        mountOptions: options,
+      });
+
+      await daemon.start();
+
+      console.log(`LPGFS mounted at ${mountpoint}`);
+
+      // If running in foreground, keep the process alive
+      if (options.foreground) {
+        console.log('Press Ctrl+C to unmount and exit');
+        // The daemon's signal handlers will take care of clean shutdown
+        // Keep the event loop alive
+        await new Promise<void>(() => {
+          // This promise never resolves - daemon runs until signal
+        });
+      } else {
+        // Background mode - just exit
+        // Note: True daemonization would require forking the process
+        // For now, foreground mode is required
+        console.log(
+          'Note: True background daemonization is not yet implemented.\n' +
+            'Use --foreground to run in foreground mode.'
+        );
+      }
     }
 
     if (result.command === 'unmount') {
       const { mountpoint } = result.data;
-      console.log(`Unmounting LPGFS at ${mountpoint}`);
-      // TODO: Implement actual unmount in task-028
-      console.log(
-        'Unmount operation not yet implemented. See task-028 for FUSE mount/unmount.'
-      );
+
+      console.log(`Unmounting LPGFS at ${mountpoint}...`);
+      await unmountFs(mountpoint);
+      console.log(`LPGFS unmounted from ${mountpoint}`);
     }
   } catch (error) {
     if (error instanceof Error) {

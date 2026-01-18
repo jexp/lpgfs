@@ -521,3 +521,101 @@ const fullResult = parseArgs([
   '--password', 'secret'
 ]);
 ```
+
+## Daemon Module
+
+### Daemon Class (src/core/daemon.ts)
+The Daemon class manages the FUSE filesystem lifecycle.
+
+**States:**
+- `stopped` - Initial state, daemon not running
+- `starting` - Daemon is initializing (loading config, connecting to DB, mounting)
+- `running` - Filesystem is mounted and serving requests
+- `stopping` - Daemon is shutting down (unmounting, closing connections)
+
+**Methods:**
+- `getState()` - Returns current daemon state
+- `getMountpoint()` - Returns absolute path of mountpoint
+- `start()` - Start the daemon (load config, connect DB, mount FS)
+- `stop()` - Stop the daemon (unmount FS, close connections)
+
+**Factory Functions:**
+- `createDaemon(options)` - Create a Daemon instance
+- `unmount(mountpoint)` - Unmount filesystem using fusermount/umount
+
+### FUSE Handler Mapping
+The daemon maps our handler functions to fuse-native format:
+- File mode constants: `S_IFDIR (0o040000)`, `S_IFREG (0o100000)`, `S_IFLNK (0o120000)`
+- Directory mode: `S_IFDIR | 0o555` (read-only)
+- File mode: `S_IFREG | 0o444` (read-only)
+- Symlink mode: `S_IFLNK | 0o777`
+
+**fuse-native Callback Pattern:**
+```typescript
+// fuse-native uses callback pattern with error code first
+ops.readdir = (path, cb) => {
+  readdir(path, ctx)
+    .then((entries) => cb(0, entries.map(e => e.name)))
+    .catch((err) => cb(err.code));  // Return negative POSIX code
+};
+
+ops.read = (path, fd, buffer, length, position, cb) => {
+  read(path, ctx, position, length)
+    .then((result) => {
+      if (position >= result.size) {
+        cb(0);  // EOF - return 0 bytes read
+        return;
+      }
+      Buffer.from(result.content, 'utf8').copy(buffer);
+      cb(result.content.length);  // Return bytes written to buffer
+    })
+    .catch((err) => cb(err.code));
+};
+```
+
+### Signal Handling
+The daemon registers handlers for SIGINT and SIGTERM:
+```typescript
+process.on('SIGINT', async () => {
+  await daemon.stop();
+  process.exit(0);
+});
+```
+
+### Optional Dependency Pattern
+fuse-native is loaded lazily since it's optional:
+```typescript
+let Fuse = null;
+
+function loadFuse() {
+  if (Fuse) return Fuse;
+  try {
+    Fuse = require('fuse-native');
+    return Fuse;
+  } catch {
+    throw new Error('fuse-native is not installed...');
+  }
+}
+```
+
+### Usage Example
+```typescript
+import { Daemon, unmount } from './core/daemon.js';
+
+// Mount filesystem
+const daemon = new Daemon({
+  mountpoint: '/mnt/graph',
+  mountOptions: {
+    db: 'neo4j://localhost:7687',
+    debug: true,
+    foreground: true,
+  },
+});
+
+await daemon.start();
+console.log(`Mounted at ${daemon.getMountpoint()}`);
+// Daemon handles SIGINT/SIGTERM for clean shutdown
+
+// Or unmount directly
+await unmount('/mnt/graph');
+```
