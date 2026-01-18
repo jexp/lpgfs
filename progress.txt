@@ -549,3 +549,34 @@
 - None - typecheck and all 151 tests pass
 - Implementation ensures any attempt to modify the filesystem returns EROFS
 - This completes the read-only filesystem requirement per PRD section 2.3
+
+## Task 027: Implement CLI argument parsing
+- **Status:** Completed
+- **PRD Reference:** Section 12.7 (Mount Options)
+
+### Key Decisions
+- Used `commander` package for CLI argument parsing (popular, well-documented)
+- Implemented `lpgfs mount <mountpoint> [options]` and `lpgfs unmount <mountpoint>` commands
+- All mount options from PRD section 12.7 supported:
+  - `--db <uri>` - Database connection URI (default: `neo4j://localhost:7687`)
+  - `--config <path>` - Path to .lpgfs.yaml (default: `./.lpgfs.yaml`)
+  - `--cache-ttl <seconds>` - Cache TTL (default: `10`)
+  - `--allow-other` - Allow other users to access mount (default: `false`)
+  - `--debug` - Verbose logging (default: `false`)
+  - `--foreground` - Run in foreground (default: `false`)
+  - `--user <name>` - Database username
+  - `--password <pass>` - Database password
+- Mountpoint validation ensures directory exists before mounting
+- Commander's `exitOverride()` and `configureOutput()` used for testable error handling
+- Help and version flags handled before Commander parse to avoid exit behavior
+- Returns typed `ParsedCommand` union type for type-safe handling
+
+### Files Changed
+- package.json: Added `commander` dependency
+- src/cli/index.ts (new): CLI parser with parseArgs(), createProgram(), validateMountpoint(), main()
+- src/cli/index.test.ts (new): Comprehensive test suite with 25 tests
+
+### Blockers/Notes
+- None - typecheck and all 176 tests pass
+- Actual mount/unmount operations not yet implemented (see task-028)
+- CLI shows helpful messages when mount is attempted

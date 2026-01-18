@@ -453,3 +453,71 @@ try {
   // err.message === "LPGFS is read-only"
 }
 ```
+
+## CLI Module
+
+### CLI Parser (src/cli/index.ts)
+- `parseArgs(argv?)` - Parse CLI arguments and return typed `ParsedCommand`
+- `createProgram(exitOverride?)` - Create Commander program instance
+- `validateMountpoint(path)` - Validate directory exists and is a directory
+- `main()` - Main CLI entry point
+
+### Parsed Command Types
+```typescript
+type ParsedCommand =
+  | { command: 'mount'; data: ParsedMountCommand }
+  | { command: 'unmount'; data: ParsedUnmountCommand }
+  | { command: 'help' }
+  | { command: 'version' };
+
+interface ParsedMountCommand {
+  mountpoint: string;  // Absolute path to mount directory
+  options: MountOptions;
+}
+
+interface ParsedUnmountCommand {
+  mountpoint: string;  // Absolute path to mounted directory
+}
+```
+
+### Mount Options (from MountOptions type)
+- `db: string` - Database connection URI (default: `neo4j://localhost:7687`)
+- `config?: string` - Path to .lpgfs.yaml (default: `./.lpgfs.yaml`)
+- `cacheTtl?: number` - Cache TTL in seconds (default: `10`)
+- `allowOther?: boolean` - Allow other users to access mount (default: `false`)
+- `debug?: boolean` - Verbose logging (default: `false`)
+- `foreground?: boolean` - Run in foreground (default: `false`)
+- `user?: string` - Database username
+- `password?: string` - Database password
+
+### Commander Testing Patterns
+When testing CLI parsing with Commander:
+1. Use `exitOverride()` to make Commander throw instead of calling `process.exit()`
+2. Use `configureOutput()` to suppress help/error output during tests
+3. Check for `--help` and `--version` flags before calling `parse()` to avoid exit behavior
+4. Handle Commander's error codes: `commander.missingArgument`, `commander.unknownCommand`, etc.
+
+**Usage Example:**
+```typescript
+import { parseArgs, ParsedCommand } from './cli/index.js';
+
+// Parse mount command
+const result = parseArgs(['mount', '/mnt/graph', '--db', 'neo4j://localhost:7687']);
+if (result.command === 'mount') {
+  console.log(result.data.mountpoint);  // '/mnt/graph'
+  console.log(result.data.options.db);  // 'neo4j://localhost:7687'
+}
+
+// Parse with all options
+const fullResult = parseArgs([
+  'mount', '/mnt/graph',
+  '--db', 'neo4j://prod:7687',
+  '--config', './prod.yaml',
+  '--cache-ttl', '30',
+  '--allow-other',
+  '--debug',
+  '--foreground',
+  '--user', 'neo4j',
+  '--password', 'secret'
+]);
+```

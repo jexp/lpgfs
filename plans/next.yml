@@ -733,7 +733,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-002"
-completed: false
+completed: true
 ---
 id: "task-028"
 title: "Implement FUSE mount/unmount"
