@@ -1018,3 +1018,284 @@ async function readRelationshipProperties(
     return JSON.stringify(ref, null, 2);
   }
 }
+
+// =============================================================================
+// Write Operations - All return EROFS (Read-Only Filesystem)
+// =============================================================================
+
+/**
+ * Error message for read-only filesystem operations.
+ */
+const EROFS_MESSAGE = 'LPGFS is read-only';
+
+/**
+ * Write data to a file.
+ *
+ * LPGFS is a read-only filesystem, so this operation always fails with EROFS.
+ *
+ * @param _path - The file path (unused)
+ * @param _data - The data to write (unused)
+ * @param _offset - The offset to write at (unused)
+ * @param _ctx - Handler context (unused)
+ * @throws LpgfsError with EROFS error code
+ */
+export function write(
+  _path: string,
+  _data: Buffer | string,
+  _offset: number,
+  _ctx: HandlerContext
+): never {
+  throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
+}
+
+/**
+ * Create a directory.
+ *
+ * LPGFS is a read-only filesystem, so this operation always fails with EROFS.
+ *
+ * @param _path - The directory path to create (unused)
+ * @param _mode - The directory mode (unused)
+ * @param _ctx - Handler context (unused)
+ * @throws LpgfsError with EROFS error code
+ */
+export function mkdir(
+  _path: string,
+  _mode: number,
+  _ctx: HandlerContext
+): never {
+  throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
+}
+
+/**
+ * Remove a file.
+ *
+ * LPGFS is a read-only filesystem, so this operation always fails with EROFS.
+ *
+ * @param _path - The file path to remove (unused)
+ * @param _ctx - Handler context (unused)
+ * @throws LpgfsError with EROFS error code
+ */
+export function unlink(_path: string, _ctx: HandlerContext): never {
+  throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
+}
+
+/**
+ * Remove a directory.
+ *
+ * LPGFS is a read-only filesystem, so this operation always fails with EROFS.
+ *
+ * @param _path - The directory path to remove (unused)
+ * @param _ctx - Handler context (unused)
+ * @throws LpgfsError with EROFS error code
+ */
+export function rmdir(_path: string, _ctx: HandlerContext): never {
+  throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
+}
+
+/**
+ * Rename/move a file or directory.
+ *
+ * LPGFS is a read-only filesystem, so this operation always fails with EROFS.
+ *
+ * @param _srcPath - The source path (unused)
+ * @param _destPath - The destination path (unused)
+ * @param _ctx - Handler context (unused)
+ * @throws LpgfsError with EROFS error code
+ */
+export function rename(
+  _srcPath: string,
+  _destPath: string,
+  _ctx: HandlerContext
+): never {
+  throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
+}
+
+/**
+ * Create a symlink.
+ *
+ * LPGFS is a read-only filesystem, so this operation always fails with EROFS.
+ *
+ * @param _target - The target path of the symlink (unused)
+ * @param _linkPath - The path where the symlink will be created (unused)
+ * @param _ctx - Handler context (unused)
+ * @throws LpgfsError with EROFS error code
+ */
+export function symlink(
+  _target: string,
+  _linkPath: string,
+  _ctx: HandlerContext
+): never {
+  throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
+}
+
+/**
+ * Create a hard link.
+ *
+ * LPGFS is a read-only filesystem, so this operation always fails with EROFS.
+ *
+ * @param _srcPath - The source path to link from (unused)
+ * @param _destPath - The destination path for the link (unused)
+ * @param _ctx - Handler context (unused)
+ * @throws LpgfsError with EROFS error code
+ */
+export function link(
+  _srcPath: string,
+  _destPath: string,
+  _ctx: HandlerContext
+): never {
+  throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
+}
+
+/**
+ * Truncate a file to a specified length.
+ *
+ * LPGFS is a read-only filesystem, so this operation always fails with EROFS.
+ *
+ * @param _path - The file path to truncate (unused)
+ * @param _size - The size to truncate to (unused)
+ * @param _ctx - Handler context (unused)
+ * @throws LpgfsError with EROFS error code
+ */
+export function truncate(
+  _path: string,
+  _size: number,
+  _ctx: HandlerContext
+): never {
+  throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
+}
+
+/**
+ * Change file mode/permissions.
+ *
+ * LPGFS is a read-only filesystem, so this operation always fails with EROFS.
+ *
+ * @param _path - The file path (unused)
+ * @param _mode - The new mode/permissions (unused)
+ * @param _ctx - Handler context (unused)
+ * @throws LpgfsError with EROFS error code
+ */
+export function chmod(
+  _path: string,
+  _mode: number,
+  _ctx: HandlerContext
+): never {
+  throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
+}
+
+/**
+ * Change file owner and group.
+ *
+ * LPGFS is a read-only filesystem, so this operation always fails with EROFS.
+ *
+ * @param _path - The file path (unused)
+ * @param _uid - The new user ID (unused)
+ * @param _gid - The new group ID (unused)
+ * @param _ctx - Handler context (unused)
+ * @throws LpgfsError with EROFS error code
+ */
+export function chown(
+  _path: string,
+  _uid: number,
+  _gid: number,
+  _ctx: HandlerContext
+): never {
+  throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
+}
+
+/**
+ * Update file access and modification times.
+ *
+ * LPGFS is a read-only filesystem, so this operation always fails with EROFS.
+ *
+ * @param _path - The file path (unused)
+ * @param _atime - The new access time (unused)
+ * @param _mtime - The new modification time (unused)
+ * @param _ctx - Handler context (unused)
+ * @throws LpgfsError with EROFS error code
+ */
+export function utimens(
+  _path: string,
+  _atime: Date | number,
+  _mtime: Date | number,
+  _ctx: HandlerContext
+): never {
+  throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
+}
+
+/**
+ * Create a new file.
+ *
+ * LPGFS is a read-only filesystem, so this operation always fails with EROFS.
+ *
+ * @param _path - The file path to create (unused)
+ * @param _mode - The file mode/permissions (unused)
+ * @param _ctx - Handler context (unused)
+ * @throws LpgfsError with EROFS error code
+ */
+export function create(
+  _path: string,
+  _mode: number,
+  _ctx: HandlerContext
+): never {
+  throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
+}
+
+/**
+ * Create a special or device file (mknod).
+ *
+ * LPGFS is a read-only filesystem, so this operation always fails with EROFS.
+ *
+ * @param _path - The file path to create (unused)
+ * @param _mode - The file mode/type (unused)
+ * @param _dev - The device number (unused)
+ * @param _ctx - Handler context (unused)
+ * @throws LpgfsError with EROFS error code
+ */
+export function mknod(
+  _path: string,
+  _mode: number,
+  _dev: number,
+  _ctx: HandlerContext
+): never {
+  throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
+}
+
+/**
+ * Set extended attribute.
+ *
+ * LPGFS is a read-only filesystem, so this operation always fails with EROFS.
+ *
+ * @param _path - The file path (unused)
+ * @param _name - The attribute name (unused)
+ * @param _value - The attribute value (unused)
+ * @param _flags - The flags (unused)
+ * @param _ctx - Handler context (unused)
+ * @throws LpgfsError with EROFS error code
+ */
+export function setxattr(
+  _path: string,
+  _name: string,
+  _value: Buffer,
+  _flags: number,
+  _ctx: HandlerContext
+): never {
+  throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
+}
+
+/**
+ * Remove extended attribute.
+ *
+ * LPGFS is a read-only filesystem, so this operation always fails with EROFS.
+ *
+ * @param _path - The file path (unused)
+ * @param _name - The attribute name to remove (unused)
+ * @param _ctx - Handler context (unused)
+ * @throws LpgfsError with EROFS error code
+ */
+export function removexattr(
+  _path: string,
+  _name: string,
+  _ctx: HandlerContext
+): never {
+  throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
+}

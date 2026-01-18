@@ -703,7 +703,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-025"
-completed: false
+completed: true
 ---
 # CLI & Mount
 

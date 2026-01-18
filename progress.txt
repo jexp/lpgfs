@@ -515,3 +515,37 @@
 ### Blockers/Notes
 - None - typecheck and all 133 tests pass
 - Implementation enables `cat /.lpgfs.yaml` to return the active configuration as YAML
+
+## Task 026: Implement FUSE write operations → EROFS
+- **Status:** Completed
+- **PRD Reference:** Section 12.8 (Error Handling), Section 2.3 (Read-only)
+
+### Key Decisions
+- Implemented all standard FUSE write operations that return EROFS error:
+  - `write()` - Write data to file
+  - `mkdir()` - Create directory
+  - `unlink()` - Remove file
+  - `rmdir()` - Remove directory
+  - `rename()` - Rename/move file or directory
+  - `symlink()` - Create symbolic link
+  - `link()` - Create hard link
+  - `truncate()` - Truncate file
+  - `chmod()` - Change permissions
+  - `chown()` - Change ownership
+  - `utimens()` - Update timestamps
+  - `create()` - Create new file
+  - `mknod()` - Create special/device file
+  - `setxattr()` - Set extended attribute
+  - `removexattr()` - Remove extended attribute
+- All operations throw `LpgfsError` with `POSIX_ERRORS.EROFS` (-30) and message "LPGFS is read-only"
+- All operations use the same error message for consistency
+- Used underscore prefix (`_path`, `_ctx`) for unused parameters to satisfy linting
+
+### Files Changed
+- src/fuse/handlers.ts: Added 15 write operation functions with EROFS response
+- src/fuse/handlers.test.ts: Added 18 tests for write operations (import changes + describe block)
+
+### Blockers/Notes
+- None - typecheck and all 151 tests pass
+- Implementation ensures any attempt to modify the filesystem returns EROFS
+- This completes the read-only filesystem requirement per PRD section 2.3

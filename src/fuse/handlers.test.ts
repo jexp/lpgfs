@@ -3,7 +3,29 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readdir, createHandlerContext, getConfigContent, getattr, readlink, read } from './handlers.js';
+import {
+  readdir,
+  createHandlerContext,
+  getConfigContent,
+  getattr,
+  readlink,
+  read,
+  write,
+  mkdir,
+  unlink,
+  rmdir,
+  rename,
+  symlink,
+  link,
+  truncate,
+  chmod,
+  chown,
+  utimens,
+  create,
+  mknod,
+  setxattr,
+  removexattr,
+} from './handlers.js';
 import type { HandlerContext } from './handlers.js';
 import type { DatabaseConnection } from '../db/connection.js';
 import { DEFAULT_CONFIG, LpgfsError, POSIX_ERRORS } from '../types/index.js';
@@ -2299,6 +2321,266 @@ describe('read', () => {
         expect(partialResult.content.length).toBeLessThanOrEqual(20);
         expect(partialResult.size).toBe(fullResult.size);
       });
+    });
+  });
+});
+
+// =============================================================================
+// Write Operations Tests - All should return EROFS
+// =============================================================================
+
+describe('write operations (EROFS)', () => {
+  let ctx: HandlerContext;
+
+  beforeEach(() => {
+    ctx = createHandlerContext(createMockDb(['Person']));
+  });
+
+  describe('write()', () => {
+    it('throws EROFS error', () => {
+      expect(() => write('/Person/alice/.properties.json', 'test data', 0, ctx)).toThrow();
+      try {
+        write('/Person/alice/.properties.json', 'test data', 0, ctx);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LpgfsError);
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+        expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+      }
+    });
+
+    it('throws EROFS with Buffer data', () => {
+      expect(() => write('/test.txt', Buffer.from('test'), 0, ctx)).toThrow();
+      try {
+        write('/test.txt', Buffer.from('test'), 0, ctx);
+      } catch (err) {
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+      }
+    });
+  });
+
+  describe('mkdir()', () => {
+    it('throws EROFS error', () => {
+      expect(() => mkdir('/NewLabel', 0o755, ctx)).toThrow();
+      try {
+        mkdir('/NewLabel', 0o755, ctx);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LpgfsError);
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+        expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+      }
+    });
+  });
+
+  describe('unlink()', () => {
+    it('throws EROFS error', () => {
+      expect(() => unlink('/Person/alice/.properties.json', ctx)).toThrow();
+      try {
+        unlink('/Person/alice/.properties.json', ctx);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LpgfsError);
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+        expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+      }
+    });
+  });
+
+  describe('rmdir()', () => {
+    it('throws EROFS error', () => {
+      expect(() => rmdir('/Person', ctx)).toThrow();
+      try {
+        rmdir('/Person', ctx);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LpgfsError);
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+        expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+      }
+    });
+  });
+
+  describe('rename()', () => {
+    it('throws EROFS error', () => {
+      expect(() => rename('/Person/alice', '/Person/bob', ctx)).toThrow();
+      try {
+        rename('/Person/alice', '/Person/bob', ctx);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LpgfsError);
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+        expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+      }
+    });
+  });
+
+  describe('symlink()', () => {
+    it('throws EROFS error', () => {
+      expect(() => symlink('/Person/alice', '/Person/link_to_alice', ctx)).toThrow();
+      try {
+        symlink('/Person/alice', '/Person/link_to_alice', ctx);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LpgfsError);
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+        expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+      }
+    });
+  });
+
+  describe('link()', () => {
+    it('throws EROFS error', () => {
+      expect(() => link('/Person/alice', '/Person/hardlink', ctx)).toThrow();
+      try {
+        link('/Person/alice', '/Person/hardlink', ctx);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LpgfsError);
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+        expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+      }
+    });
+  });
+
+  describe('truncate()', () => {
+    it('throws EROFS error', () => {
+      expect(() => truncate('/Person/alice/.properties.json', 0, ctx)).toThrow();
+      try {
+        truncate('/Person/alice/.properties.json', 0, ctx);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LpgfsError);
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+        expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+      }
+    });
+  });
+
+  describe('chmod()', () => {
+    it('throws EROFS error', () => {
+      expect(() => chmod('/Person/alice', 0o755, ctx)).toThrow();
+      try {
+        chmod('/Person/alice', 0o755, ctx);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LpgfsError);
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+        expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+      }
+    });
+  });
+
+  describe('chown()', () => {
+    it('throws EROFS error', () => {
+      expect(() => chown('/Person/alice', 1000, 1000, ctx)).toThrow();
+      try {
+        chown('/Person/alice', 1000, 1000, ctx);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LpgfsError);
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+        expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+      }
+    });
+  });
+
+  describe('utimens()', () => {
+    it('throws EROFS error with Date objects', () => {
+      const now = new Date();
+      expect(() => utimens('/Person/alice', now, now, ctx)).toThrow();
+      try {
+        utimens('/Person/alice', now, now, ctx);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LpgfsError);
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+        expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+      }
+    });
+
+    it('throws EROFS error with numeric timestamps', () => {
+      expect(() => utimens('/Person/alice', Date.now(), Date.now(), ctx)).toThrow();
+      try {
+        utimens('/Person/alice', Date.now(), Date.now(), ctx);
+      } catch (err) {
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+      }
+    });
+  });
+
+  describe('create()', () => {
+    it('throws EROFS error', () => {
+      expect(() => create('/newfile.txt', 0o644, ctx)).toThrow();
+      try {
+        create('/newfile.txt', 0o644, ctx);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LpgfsError);
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+        expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+      }
+    });
+  });
+
+  describe('mknod()', () => {
+    it('throws EROFS error', () => {
+      expect(() => mknod('/device', 0o644, 0, ctx)).toThrow();
+      try {
+        mknod('/device', 0o644, 0, ctx);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LpgfsError);
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+        expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+      }
+    });
+  });
+
+  describe('setxattr()', () => {
+    it('throws EROFS error', () => {
+      expect(() => setxattr('/Person/alice', 'user.attr', Buffer.from('value'), 0, ctx)).toThrow();
+      try {
+        setxattr('/Person/alice', 'user.attr', Buffer.from('value'), 0, ctx);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LpgfsError);
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+        expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+      }
+    });
+  });
+
+  describe('removexattr()', () => {
+    it('throws EROFS error', () => {
+      expect(() => removexattr('/Person/alice', 'user.attr', ctx)).toThrow();
+      try {
+        removexattr('/Person/alice', 'user.attr', ctx);
+      } catch (err) {
+        expect(err).toBeInstanceOf(LpgfsError);
+        expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+        expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+      }
+    });
+  });
+
+  describe('all write operations fail consistently', () => {
+    it('all return EROFS with same error message', () => {
+      const operations = [
+        () => write('/test', 'data', 0, ctx),
+        () => mkdir('/test', 0o755, ctx),
+        () => unlink('/test', ctx),
+        () => rmdir('/test', ctx),
+        () => rename('/a', '/b', ctx),
+        () => symlink('/a', '/b', ctx),
+        () => link('/a', '/b', ctx),
+        () => truncate('/test', 0, ctx),
+        () => chmod('/test', 0o755, ctx),
+        () => chown('/test', 1000, 1000, ctx),
+        () => utimens('/test', new Date(), new Date(), ctx),
+        () => create('/test', 0o644, ctx),
+        () => mknod('/test', 0o644, 0, ctx),
+        () => setxattr('/test', 'attr', Buffer.from('v'), 0, ctx),
+        () => removexattr('/test', 'attr', ctx),
+      ];
+
+      for (const op of operations) {
+        try {
+          op();
+          // If we get here, the operation didn't throw
+          expect.fail('Operation should have thrown EROFS error');
+        } catch (err) {
+          expect(err).toBeInstanceOf(LpgfsError);
+          expect((err as LpgfsError).code).toBe(POSIX_ERRORS.EROFS);
+          expect((err as LpgfsError).message).toBe('LPGFS is read-only');
+        }
+      }
     });
   });
 });

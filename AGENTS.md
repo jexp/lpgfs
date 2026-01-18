@@ -418,3 +418,38 @@ const relProps = await read('/Person/alice/KNOWS/OUT/.james.json', ctx);
 const relRef = await read('/Person/james/KNOWS/IN/.alice.json', ctx);
 // Returns: { "_ref": "5:abc:0" }
 ```
+
+### Write Operations (src/fuse/handlers.ts)
+All write operations return EROFS (Read-Only Filesystem) error per PRD section 2.3:
+
+- `write(path, data, offset, ctx)` - Write data to file
+- `mkdir(path, mode, ctx)` - Create directory
+- `unlink(path, ctx)` - Remove file
+- `rmdir(path, ctx)` - Remove directory
+- `rename(srcPath, destPath, ctx)` - Rename/move file or directory
+- `symlink(target, linkPath, ctx)` - Create symbolic link
+- `link(srcPath, destPath, ctx)` - Create hard link
+- `truncate(path, size, ctx)` - Truncate file
+- `chmod(path, mode, ctx)` - Change permissions
+- `chown(path, uid, gid, ctx)` - Change ownership
+- `utimens(path, atime, mtime, ctx)` - Update timestamps
+- `create(path, mode, ctx)` - Create new file
+- `mknod(path, mode, dev, ctx)` - Create special/device file
+- `setxattr(path, name, value, flags, ctx)` - Set extended attribute
+- `removexattr(path, name, ctx)` - Remove extended attribute
+
+All operations throw `LpgfsError` with:
+- Code: `POSIX_ERRORS.EROFS` (-30)
+- Message: `"LPGFS is read-only"`
+
+**Usage Example:**
+```typescript
+import { write, mkdir } from './fuse/handlers.js';
+
+try {
+  write('/test.txt', 'data', 0, ctx);
+} catch (err) {
+  // err.code === -30 (EROFS)
+  // err.message === "LPGFS is read-only"
+}
+```
