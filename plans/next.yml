@@ -678,7 +678,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-024"
-completed: false
+completed: true
 ---
 id: "task-026"
 title: "Implement FUSE write operations → EROFS"

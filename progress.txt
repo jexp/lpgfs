@@ -496,3 +496,22 @@
 - Implementation enables:
   - `cat /Person/alice/KNOWS/OUT/.james.json` → `{ "_elementId": "5:abc:0", "since": 2020 }`
   - `cat /Person/james/KNOWS/IN/.alice.json` → `{ "_ref": "5:abc:0" }`
+
+## Task 025: Implement FUSE read() for .lpgfs.yaml
+- **Status:** Completed
+- **PRD Reference:** Section 5.3 (Naming Configuration)
+
+### Key Decisions
+- Config file reading was already implemented in task-023 as part of the `read()` function
+- The `read()` function detects `/.lpgfs.yaml` via `pathContext.isConfigFile` flag
+- Uses `getConfigContent()` helper to serialize config back to YAML via `ConfigParser.toYaml()`
+- Supports partial reads via offset/length parameters (same as other file types)
+- Config is read-only (no write support)
+
+### Files Changed
+- No changes needed - functionality was already present in src/fuse/handlers.ts
+- Existing tests in src/fuse/handlers.test.ts already cover config file reading (lines 1661-1681)
+
+### Blockers/Notes
+- None - typecheck and all 133 tests pass
+- Implementation enables `cat /.lpgfs.yaml` to return the active configuration as YAML
