@@ -7,6 +7,7 @@
 
 import { execSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import type { ConfigSchema, MountOptions } from '../types/index.js';
 import { DEFAULT_CONFIG, LpgfsError, POSIX_ERRORS } from '../types/index.js';
@@ -125,8 +126,8 @@ function loadFuse(): FuseConstructor {
   }
 
   try {
-    // Dynamic import for optional dependency
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // Create require function for ES module context
+    const require = createRequire(import.meta.url);
     Fuse = require('fuse-native') as FuseConstructor;
     return Fuse;
   } catch {
