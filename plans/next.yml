@@ -905,7 +905,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-032"
-completed: false
+completed: true
 ---
 id: "task-034"
 title: "Write README with quickstart"

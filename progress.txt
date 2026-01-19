@@ -735,3 +735,39 @@
 - None - typecheck and all 386 tests pass
 - Configs are ready for manual testing against a running Neo4j instance
 - README includes quick test script for automated verification
+
+## Task 033: Manual test: edge cases
+- **Status:** Completed
+- **PRD Reference:** Section 8 (Edge Cases and Special Handling)
+
+### Key Decisions
+- Created edge-cases.cypher as a supplemental script (runs after seed.cypher)
+- Extends base test data with additional edge case scenarios:
+  - Section 8.1: Additional LIKES multiple rels (bob->carol x2)
+  - Section 8.2: Additional self-ref BOOKMARKED (carol)
+  - Section 8.3: Additional isolated node (Stealth Startup company)
+  - Section 8.4: Comprehensive special character testing
+- Added nodes with all forbidden filesystem characters:
+  - Slash (/)
+  - Backslash (\\)
+  - Colon (:)
+  - Asterisk (*)
+  - Question mark (?)
+  - Quotes (")
+  - Angle brackets (<>)
+  - Pipe (|)
+  - Combined forbidden chars
+  - Leading/trailing dots
+  - Whitespace-only values
+  - Empty string values
+- Added Unicode and long filename edge cases
+- Added relationship properties with special characters
+- Verification queries included in comments
+
+### Files Changed
+- test/edge-cases.cypher (new): Edge case test data for PRD section 8
+
+### Blockers/Notes
+- None - typecheck and all 386 tests pass
+- Script should be run AFTER seed.cypher (does not clear data)
+- Special char tests verify sanitization logic works correctly
