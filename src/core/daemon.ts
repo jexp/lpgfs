@@ -176,6 +176,7 @@ export class Daemon {
   private cache: Cache | null = null;
   private handlerContext: HandlerContext | null = null;
   private signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = [];
+  private uncaughtExceptionHandler: ((error: Error) => void) | null = null;
   private logger: Logger;
 
   constructor(options: DaemonOptions) {
@@ -290,6 +291,23 @@ export class Daemon {
       });
       this.logger.info('Database connection established');
 
+      // Test database connectivity
+      this.logger.info('Testing database connectivity...');
+      try {
+        await this.db.executeQuery('RETURN 1 as test');
+        this.logger.debug('Database connectivity test passed');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Cannot connect to database at ${this.mountOptions.db}\n` +
+            `Error: ${message}\n` +
+            'Please check that:\n' +
+            '  - Neo4j is running and accessible\n' +
+            '  - The connection URI is correct\n' +
+            '  - Username and password are correct'
+        );
+      }
+
       // Create cache
       this.cache = new Cache({ debug });
       this.logger.debug('Cache initialized');
@@ -344,6 +362,9 @@ export class Daemon {
       // Register signal handlers for clean shutdown
       this.registerSignalHandlers();
 
+      // Register uncaught exception handler
+      this.registerUncaughtExceptionHandler();
+
       this.state = 'running';
       this.logger.info(`Filesystem mounted successfully at ${this.mountpoint}`);
     } catch (error) {
@@ -364,6 +385,9 @@ export class Daemon {
 
     this.state = 'stopping';
     this.logger.info('Stopping daemon...');
+
+    // Unregister exception handler
+    this.unregisterUncaughtExceptionHandler();
 
     // Unregister signal handlers
     this.unregisterSignalHandlers();
@@ -507,6 +531,45 @@ export class Daemon {
       process.off(signal, handler);
     }
     this.signalHandlers = [];
+  }
+
+  /**
+   * Register uncaught exception handler for debugging segfaults and crashes.
+   */
+  private registerUncaughtExceptionHandler(): void {
+    this.uncaughtExceptionHandler = (error: Error) => {
+      // Log full error with daemon context
+      console.error('\n[lpgfs] UNCAUGHT EXCEPTION:');
+      console.error(`  State: ${this.state}`);
+      console.error(`  Mountpoint: ${this.mountpoint}`);
+      console.error(`  Error: ${error.message}`);
+      console.error(`  Stack: ${error.stack}`);
+
+      // Attempt graceful cleanup
+      this.logger.error('Attempting graceful cleanup after uncaught exception...');
+      this.cleanup()
+        .then(() => {
+          console.error('[lpgfs] Cleanup complete, exiting with code 1');
+          process.exit(1);
+        })
+        .catch((cleanupErr) => {
+          console.error('[lpgfs] Cleanup failed:', cleanupErr);
+          process.exit(1);
+        });
+    };
+
+    process.on('uncaughtException', this.uncaughtExceptionHandler);
+    this.logger.debug('Uncaught exception handler registered');
+  }
+
+  /**
+   * Unregister uncaught exception handler.
+   */
+  private unregisterUncaughtExceptionHandler(): void {
+    if (this.uncaughtExceptionHandler) {
+      process.off('uncaughtException', this.uncaughtExceptionHandler);
+      this.uncaughtExceptionHandler = null;
+    }
   }
 
   /**
@@ -706,67 +769,147 @@ export class Daemon {
 
       // Write operations - all return EROFS
       write: (_path, _fd, _buffer, _length, _position, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('write error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       create: (_path, _mode, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('create error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       truncate: (_path, _size, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('truncate error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       ftruncate: (_path, _fd, _size, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('ftruncate error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       unlink: (_path, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('unlink error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       mkdir: (_path, _mode, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('mkdir error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       rmdir: (_path, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('rmdir error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       rename: (_src, _dest, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('rename error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       symlink: (_target, _path, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('symlink error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       link: (_src, _dest, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('link error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       chmod: (_path, _mode, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('chmod error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       chown: (_path, _uid, _gid, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('chown error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       utimens: (_path, _atime, _mtime, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('utimens error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       mknod: (_path, _mode, _dev, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('mknod error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       setxattr: (_path, _name, _value, _position, _flags, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('setxattr error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       removexattr: (_path, _name, cb) => {
-        cb(POSIX_ERRORS.EROFS);
+        try {
+          cb(POSIX_ERRORS.EROFS);
+        } catch (err) {
+          logger.error('removexattr error', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
     };
   }

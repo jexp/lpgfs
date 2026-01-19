@@ -851,3 +851,98 @@
 
 ### Blockers/Notes
 - None - implementation complete per task requirements
+
+## Task task-segfault-004: Add graceful FUSE operations error handling
+- **Status:** Completed
+- **PRD Reference:** N/A (segfault investigation)
+
+### Key Decisions
+- Wrapped all write operation callbacks (write, create, truncate, ftruncate, unlink, mkdir, rmdir, rename, symlink, link, chmod, chown, utimens, mknod, setxattr, removexattr) with try-catch
+- All operations log errors and return EIO instead of crashing if callback throws
+- Read operations (readdir, getattr, read, readlink) and utility operations (init, open, opendir, release, releasedir) already had try-catch from task-segfault-001
+- All FUSE callbacks now guaranteed to never throw synchronous errors
+- Callbacks always called exactly once, even on error
+
+### Files Changed
+- src/core/daemon.ts: Added try-catch wrapping to all write operation callbacks (lines 708-850)
+
+### Blockers/Notes
+- None - all FUSE operations now have comprehensive error handling
+
+## Task task-segfault-005: Add process.on('uncaughtException') handler
+- **Status:** Completed
+- **PRD Reference:** N/A (segfault investigation)
+
+### Key Decisions
+- Added uncaughtExceptionHandler to Daemon class private fields
+- Handler logs full error stack with daemon context (state, mountpoint, error, stack)
+- Attempts graceful cleanup before exit (calls cleanup() method)
+- Handler registered in start() after signal handlers
+- Handler unregistered in stop() before signal handlers
+- Always exits with code 1 after logging and cleanup
+- Uses console.error for output (not gated by debug flag) for critical errors
+
+### Files Changed
+- src/core/daemon.ts: Added uncaughtExceptionHandler field, registerUncaughtExceptionHandler() and unregisterUncaughtExceptionHandler() methods (lines 179, 349, 373, 519-556)
+
+### Blockers/Notes
+- None - implementation complete per task requirements
+
+## Task task-segfault-006: Add connection test before FUSE mount
+- **Status:** Completed
+- **PRD Reference:** N/A (segfault investigation)
+
+### Key Decisions
+- Added database connectivity test after connect() in Daemon.start()
+- Uses simple test query: `db.executeQuery('RETURN 1 as test')` to verify connection
+- Fails fast with clear error before FUSE initialization
+- Error message includes connection URI, specific error, and troubleshooting checklist
+- Wrapped in try-catch to provide user-friendly error instead of cryptic database error
+- Test runs after basic connection establishment but before cache/FUSE setup
+
+### Files Changed
+- src/core/daemon.ts: Added connectivity test after database connection (lines 294-309)
+
+### Blockers/Notes
+- None - implementation complete per task requirements
+
+## Task task-segfault-007: Update README with troubleshooting section
+- **Status:** Completed
+- **PRD Reference:** N/A (segfault investigation)
+
+### Key Decisions
+- Added comprehensive "## Troubleshooting" section after "## Limitations" in README
+- Organized by error categories: segfault causes, common errors, debug mode, issue reporting
+- Documented all segfault prevention measures from tasks 001-006:
+  - Node.js version recommendation (18 or 20, not 22+)
+  - macFUSE/FUSE installation validation with platform-specific commands
+  - Database connectivity troubleshooting
+  - Permission and mount/unmount issues
+- Included specific commands for each troubleshooting step
+- Added debug mode instructions with `--debug --foreground` flags
+- Included issue reporting template with required information
+
+### Files Changed
+- README.md: Added "## Troubleshooting" section with 5 subsections (lines 249-333)
+
+### Blockers/Notes
+- None - documentation complete per task requirements
+
+## Task task-segfault-008: Add integration test for mount error scenarios
+- **Status:** Completed
+- **PRD Reference:** N/A (segfault investigation)
+
+### Key Decisions
+- Created comprehensive mount error test script in test/mount-errors.md
+- Documented 6 error scenarios: Neo4j stopped, wrong credentials, invalid mountpoint, missing FUSE libs, SIGINT during mount, already mounted directory
+- Each scenario includes test command, expected error output, and verification checklist
+- Added troubleshooting section for common issues (segfaults, hangs, zombie processes)
+- Included cleanup commands for stuck mounts
+- All tests designed to complete within 5-10 seconds
+- Emphasized clear error messages with no sensitive data leakage
+
+### Files Changed
+- test/mount-errors.md (new): Manual test script with 6 mount error scenarios
+
+### Blockers/Notes
+- None - all error scenarios documented with expected outputs

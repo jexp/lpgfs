@@ -6,7 +6,7 @@ description: |
   - macFUSE initialization errors not handled properly
   - Signal handlers accessing unmounted FUSE
   - Missing graceful degradation for FUSE errors
-completed: false
+completed: true
 ---
 
 id: "task-segfault-001"
@@ -123,7 +123,7 @@ description: |
 
 parentID: "segfault-investigation-001"
 dependsOn: ["task-segfault-001"]
-completed: false
+completed: true
 ---
 
 id: "task-segfault-005"
@@ -152,7 +152,7 @@ description: |
 
 parentID: "segfault-investigation-001"
 dependsOn: ["task-segfault-001"]
-completed: false
+completed: true
 ---
 
 id: "task-segfault-006"
@@ -181,7 +181,7 @@ description: |
 
 parentID: "segfault-investigation-001"
 dependsOn: ["task-segfault-001"]
-completed: false
+completed: true
 ---
 
 id: "task-segfault-007"
@@ -216,7 +216,7 @@ dependsOn:
   - "task-segfault-004"
   - "task-segfault-005"
   - "task-segfault-006"
-completed: false
+completed: true
 ---
 
 id: "task-segfault-008"
@@ -253,4 +253,4 @@ dependsOn:
   - "task-segfault-004"
   - "task-segfault-005"
   - "task-segfault-006"
-completed: false
+completed: true

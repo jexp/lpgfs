@@ -45,6 +45,7 @@ src/
 **FUSE Error Handling:**
 - fuse-native callbacks MUST be wrapped in try-catch - synchronous errors can cause segfaults
 - All FUSE callbacks must call their callback exactly once - never throw
+- Even trivial operations (like write ops returning EROFS) need try-catch - callback itself could throw
 - Signal handlers need state checks - don't call stop() if not running
 - Mount operations can hang - use timeout (5s) to fail fast
 - cleanup() must never throw - wrap all cleanup in try-catch
@@ -52,3 +53,5 @@ src/
 - Validate FUSE libraries installed before loadFuse() - prevents confusing errors
   - macOS: /Library/Filesystems/macfuse.fs
   - Linux: /dev/fuse
+- Register uncaughtException handler for debugging - log full context (state, mountpoint, stack) and attempt cleanup before exit
+- Unregister exception handler in stop() to avoid handling exceptions after daemon stops

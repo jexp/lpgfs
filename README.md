@@ -251,6 +251,86 @@ ls ~/graph-mount/Person/newuser/
 - **No real-time updates**: Changes to the database require cache expiration or remount
 - **Large graphs**: Performance depends on database query time and caching
 
+## Troubleshooting
+
+### Segmentation Fault on Mount
+
+If you experience a segfault when mounting, try these solutions:
+
+**Node.js Version:**
+- fuse-native is stable on Node.js 18 and 20
+- Node.js 22+ may cause segfaults
+- Check version: `node --version`
+- Switch versions: use [nvm](https://github.com/nvm-sh/nvm) to install Node 18 or 20
+
+**macFUSE Not Installed (macOS):**
+```bash
+# Check if macFUSE is installed
+ls /Library/Filesystems/macfuse.fs
+
+# If missing, install from:
+# https://osxfuse.github.io/
+```
+
+**FUSE Not Installed (Linux):**
+```bash
+# Check if FUSE is available
+ls /dev/fuse
+
+# Install FUSE libraries
+sudo apt-get install libfuse-dev  # Debian/Ubuntu
+sudo yum install fuse-devel       # RedHat/CentOS
+```
+
+### Common Errors
+
+**"Cannot connect to database"**
+- Verify Neo4j is running: `neo4j status`
+- Check connection URI matches your Neo4j configuration
+- Verify credentials with: `cypher-shell -u <user> -p <password>`
+- Test connection: `curl http://localhost:7474` (default HTTP port)
+
+**"Permission denied" on mount**
+- Use `--allow-other` flag (requires `user_allow_other` in `/etc/fuse.conf` on Linux)
+- Or mount to a directory you own without `--allow-other`
+- Check mountpoint exists: `ls -ld ~/graph-mount`
+
+**"Device or resource busy" on unmount**
+- Close all programs accessing the mount
+- Check processes: `lsof ~/graph-mount` (may need sudo)
+- Force unmount: `fusermount -uz ~/graph-mount` (Linux) or `umount -f ~/graph-mount` (macOS)
+
+**Mount hangs indefinitely**
+- Check database connectivity before mounting
+- Enable debug mode: `--debug --foreground` to see detailed logs
+- Timeout after 5 seconds indicates connection issue
+
+### Debug Mode
+
+Run with `--debug --foreground` for detailed logging:
+
+```bash
+lpgfs mount ~/graph-mount --db neo4j://localhost:7687 --user neo4j --password secret --debug --foreground
+```
+
+This shows:
+- Configuration loading
+- Database connection attempts
+- FUSE operation timings
+- Error details and stack traces
+
+### Reporting Issues
+
+If none of these solutions work, please report the issue at:
+https://github.com/anthropics/lpgfs/issues
+
+Include:
+- Node.js version (`node --version`)
+- Operating system and version
+- Neo4j version
+- Full error output with `--debug` flag
+- Steps to reproduce
+
 ## Development
 
 ```bash
