@@ -5,15 +5,31 @@
  * Maps filesystem operations to database queries via path parsing.
  */
 
-import type { DatabaseConnection } from '../db/connection.js';
-import type { ConfigSchema, DirectoryEntry, StatResult } from '../types/index.js';
-import { DEFAULT_CONFIG, POSIX_ERRORS, LpgfsError } from '../types/index.js';
-import { Cache } from '../cache/index.js';
-import { getLabels, getNodesByLabel, getRelationshipTypes, getRelationships, getNodeProperties, getRelationshipProperties } from '../db/queries.js';
-import { parsePath, CONFIG_FILENAME, PROPERTIES_FILENAME, extractTargetFromRelPropertiesFilename } from '../core/path-parser.js';
-import type { Direction } from '../types/index.js';
-import { ConfigParser } from '../config/parser.js';
-import { Logger, createLogger } from '../core/logger.js';
+import type { DatabaseConnection } from "../db/connection.js";
+import type {
+  ConfigSchema,
+  DirectoryEntry,
+  StatResult,
+} from "../types/index.js";
+import { DEFAULT_CONFIG, POSIX_ERRORS, LpgfsError } from "../types/index.js";
+import { Cache } from "../cache/index.js";
+import {
+  getLabels,
+  getNodesByLabel,
+  getRelationshipTypes,
+  getRelationships,
+  getNodeProperties,
+  getRelationshipProperties,
+} from "../db/queries.js";
+import {
+  parsePath,
+  CONFIG_FILENAME,
+  PROPERTIES_FILENAME,
+  extractTargetFromRelPropertiesFilename,
+} from "../core/path-parser.js";
+import type { Direction } from "../types/index.js";
+import { ConfigParser } from "../config/parser.js";
+import { Logger, createLogger } from "../core/logger.js";
 
 /**
  * Context for FUSE handlers containing shared resources.
@@ -41,7 +57,7 @@ export function createHandlerContext(
     cache?: Cache;
     debug?: boolean;
     logger?: Logger;
-  } = {}
+  } = {},
 ): HandlerContext {
   const debug = options.debug ?? false;
   return {
@@ -49,7 +65,8 @@ export function createHandlerContext(
     config: options.config ?? DEFAULT_CONFIG,
     cache: options.cache ?? new Cache(),
     debug,
-    logger: options.logger ?? createLogger({ enabled: debug, prefix: 'lpgfs:fuse' }),
+    logger:
+      options.logger ?? createLogger({ enabled: debug, prefix: "lpgfs:fuse" }),
   };
 }
 
@@ -73,7 +90,7 @@ export function createHandlerContext(
  */
 export async function readdir(
   path: string,
-  ctx: HandlerContext
+  ctx: HandlerContext,
 ): Promise<DirectoryEntry[]> {
   const pathContext = parsePath(path);
   const timer = ctx.logger.time();
@@ -84,45 +101,58 @@ export async function readdir(
     let result: DirectoryEntry[];
 
     switch (pathContext.type) {
-      case 'root':
+      case "root":
         result = await readdirRoot(ctx);
         break;
 
-      case 'label':
+      case "label":
         result = await readdirLabel(pathContext.label!, ctx);
         break;
 
-      case 'node':
-        result = await readdirNode(pathContext.label!, pathContext.nodeName!, ctx);
+      case "node":
+        result = await readdirNode(
+          pathContext.label!,
+          pathContext.nodeName!,
+          ctx,
+        );
         break;
 
-      case 'reltype':
+      case "reltype":
         result = readdirReltype();
         break;
 
-      case 'direction':
+      case "direction":
         result = await readdirDirection(
           pathContext.label!,
           pathContext.nodeName!,
           pathContext.relType!,
           pathContext.direction!,
-          ctx
+          ctx,
         );
         break;
 
       default:
-        throw new LpgfsError(`readdir not implemented for path type: ${pathContext.type}`, POSIX_ERRORS.ENOENT);
+        throw new LpgfsError(
+          `readdir not implemented for path type: ${pathContext.type}`,
+          POSIX_ERRORS.ENOENT,
+        );
     }
 
     timer.end(`readdir: ${path}`, { entries: result.length });
     return result;
   } catch (error) {
     if (error instanceof LpgfsError) {
-      ctx.logger.debug(`readdir: ${path} -> error`, { code: error.code, message: error.message });
+      ctx.logger.debug(`readdir: ${path} -> error`, {
+        code: error.code,
+        message: error.message,
+      });
       throw error;
     }
     ctx.logger.error(`readdir: ${path}`, error);
-    throw new LpgfsError(`readdir failed: ${(error as Error).message}`, POSIX_ERRORS.EIO);
+    throw new LpgfsError(
+      `readdir failed: ${(error as Error).message}`,
+      POSIX_ERRORS.EIO,
+    );
   }
 }
 
@@ -146,14 +176,14 @@ async function readdirRoot(ctx: HandlerContext): Promise<DirectoryEntry[]> {
   for (const label of labels) {
     entries.push({
       name: label,
-      type: 'directory',
+      type: "directory",
     });
   }
 
   // Add the config file
   entries.push({
     name: CONFIG_FILENAME,
-    type: 'file',
+    type: "file",
   });
 
   return entries;
@@ -181,7 +211,7 @@ async function readdirRoot(ctx: HandlerContext): Promise<DirectoryEntry[]> {
  */
 async function readdirLabel(
   label: string,
-  ctx: HandlerContext
+  ctx: HandlerContext,
 ): Promise<DirectoryEntry[]> {
   // Get all nodes for this label with display names
   const nodes = await getNodesByLabel(ctx.db, label, ctx.config, ctx.cache);
@@ -189,7 +219,7 @@ async function readdirLabel(
   // Return each node as a directory entry
   return nodes.map((node) => ({
     name: node.name,
-    type: 'directory' as const,
+    type: "directory" as const,
   }));
 }
 
@@ -217,14 +247,14 @@ async function readdirLabel(
 async function readdirNode(
   label: string,
   nodeName: string,
-  ctx: HandlerContext
+  ctx: HandlerContext,
 ): Promise<DirectoryEntry[]> {
   const entries: DirectoryEntry[] = [];
 
   // Add the properties file
   entries.push({
     name: PROPERTIES_FILENAME,
-    type: 'file',
+    type: "file",
   });
 
   // Get all relationship types for this node
@@ -233,14 +263,14 @@ async function readdirNode(
     label,
     nodeName,
     ctx.config,
-    ctx.cache
+    ctx.cache,
   );
 
   // Add each relationship type as a directory
   for (const relType of relTypes) {
     entries.push({
       name: relType,
-      type: 'directory',
+      type: "directory",
     });
   }
 
@@ -265,8 +295,8 @@ async function readdirNode(
  */
 function readdirReltype(): DirectoryEntry[] {
   return [
-    { name: 'OUT', type: 'directory' },
-    { name: 'IN', type: 'directory' },
+    { name: "OUT", type: "directory" },
+    { name: "IN", type: "directory" },
   ];
 }
 
@@ -307,7 +337,7 @@ async function readdirDirection(
   nodeName: string,
   relType: string,
   direction: Direction,
-  ctx: HandlerContext
+  ctx: HandlerContext,
 ): Promise<DirectoryEntry[]> {
   // Get all relationships of this type and direction from the source node
   const relationships = await getRelationships(
@@ -317,7 +347,7 @@ async function readdirDirection(
     relType,
     direction,
     ctx.config,
-    ctx.cache
+    ctx.cache,
   );
 
   if (relationships.length === 0) {
@@ -340,13 +370,13 @@ async function readdirDirection(
     // Add symlink to target node
     entries.push({
       name: displayName,
-      type: 'symlink',
+      type: "symlink",
     });
 
     // Add relationship properties file (.targetName.json)
     entries.push({
       name: `.${displayName}.json`,
-      type: 'file',
+      type: "file",
     });
   }
 
@@ -395,7 +425,7 @@ export function getConfigContent(ctx: HandlerContext): string {
  */
 export async function getattr(
   path: string,
-  ctx: HandlerContext
+  ctx: HandlerContext,
 ): Promise<StatResult> {
   const pathContext = parsePath(path);
   const timer = ctx.logger.time();
@@ -407,65 +437,78 @@ export async function getattr(
     let result: StatResult;
 
     switch (pathContext.type) {
-      case 'root':
-        result = { type: 'directory', mtime: now, atime: now, ctime: now };
+      case "root":
+        result = { type: "directory", mtime: now, atime: now, ctime: now };
         break;
 
-      case 'label':
+      case "label":
         result = await getattrLabel(pathContext.label!, ctx);
         break;
 
-      case 'node':
-        result = await getattrNode(pathContext.label!, pathContext.nodeName!, ctx);
+      case "node":
+        result = await getattrNode(
+          pathContext.label!,
+          pathContext.nodeName!,
+          ctx,
+        );
         break;
 
-      case 'reltype':
+      case "reltype":
         result = await getattrReltype(
           pathContext.label!,
           pathContext.nodeName!,
           pathContext.relType!,
-          ctx
+          ctx,
         );
         break;
 
-      case 'direction':
+      case "direction":
         result = await getattrDirection(
           pathContext.label!,
           pathContext.nodeName!,
           pathContext.relType!,
           pathContext.direction!,
-          ctx
+          ctx,
         );
         break;
 
-      case 'target':
+      case "target":
         result = await getattrTarget(
           pathContext.label!,
           pathContext.nodeName!,
           pathContext.relType!,
           pathContext.direction!,
           pathContext.targetName!,
-          ctx
+          ctx,
         );
         break;
 
-      case 'properties':
+      case "properties":
         result = await getattrProperties(pathContext, ctx);
         break;
 
       default:
-        throw new LpgfsError(`Unknown path type: ${pathContext.type}`, POSIX_ERRORS.ENOENT);
+        throw new LpgfsError(
+          `Unknown path type: ${pathContext.type}`,
+          POSIX_ERRORS.ENOENT,
+        );
     }
 
     timer.end(`getattr: ${path}`, { type: result.type });
     return result;
   } catch (error) {
     if (error instanceof LpgfsError) {
-      ctx.logger.debug(`getattr: ${path} -> error`, { code: error.code, message: error.message });
+      ctx.logger.debug(`getattr: ${path} -> error`, {
+        code: error.code,
+        message: error.message,
+      });
       throw error;
     }
     ctx.logger.error(`getattr: ${path}`, error);
-    throw new LpgfsError(`getattr failed: ${(error as Error).message}`, POSIX_ERRORS.EIO);
+    throw new LpgfsError(
+      `getattr failed: ${(error as Error).message}`,
+      POSIX_ERRORS.EIO,
+    );
   }
 }
 
@@ -475,7 +518,7 @@ export async function getattr(
  */
 async function getattrLabel(
   label: string,
-  ctx: HandlerContext
+  ctx: HandlerContext,
 ): Promise<StatResult> {
   const now = new Date();
   const labels = await getLabels(ctx.db, ctx.cache);
@@ -484,7 +527,7 @@ async function getattrLabel(
     throw new LpgfsError(`Label not found: ${label}`, POSIX_ERRORS.ENOENT);
   }
 
-  return { type: 'directory', mtime: now, atime: now, ctime: now };
+  return { type: "directory", mtime: now, atime: now, ctime: now };
 }
 
 /**
@@ -494,7 +537,7 @@ async function getattrLabel(
 async function getattrNode(
   label: string,
   nodeName: string,
-  ctx: HandlerContext
+  ctx: HandlerContext,
 ): Promise<StatResult> {
   const now = new Date();
 
@@ -512,7 +555,7 @@ async function getattrNode(
     throw new LpgfsError(`Node not found: ${nodeName}`, POSIX_ERRORS.ENOENT);
   }
 
-  return { type: 'directory', mtime: now, atime: now, ctime: now };
+  return { type: "directory", mtime: now, atime: now, ctime: now };
 }
 
 /**
@@ -523,7 +566,7 @@ async function getattrReltype(
   label: string,
   nodeName: string,
   relType: string,
-  ctx: HandlerContext
+  ctx: HandlerContext,
 ): Promise<StatResult> {
   const now = new Date();
 
@@ -545,14 +588,17 @@ async function getattrReltype(
     label,
     nodeName,
     ctx.config,
-    ctx.cache
+    ctx.cache,
   );
 
   if (!relTypes.includes(relType)) {
-    throw new LpgfsError(`Relationship type not found: ${relType}`, POSIX_ERRORS.ENOENT);
+    throw new LpgfsError(
+      `Relationship type not found: ${relType}`,
+      POSIX_ERRORS.ENOENT,
+    );
   }
 
-  return { type: 'directory', mtime: now, atime: now, ctime: now };
+  return { type: "directory", mtime: now, atime: now, ctime: now };
 }
 
 /**
@@ -564,19 +610,22 @@ async function getattrDirection(
   nodeName: string,
   relType: string,
   direction: Direction,
-  ctx: HandlerContext
+  ctx: HandlerContext,
 ): Promise<StatResult> {
   const now = new Date();
 
   // Validate direction value
-  if (direction !== 'OUT' && direction !== 'IN') {
-    throw new LpgfsError(`Invalid direction: ${direction}`, POSIX_ERRORS.ENOENT);
+  if (direction !== "OUT" && direction !== "IN") {
+    throw new LpgfsError(
+      `Invalid direction: ${direction}`,
+      POSIX_ERRORS.ENOENT,
+    );
   }
 
   // Validate parent hierarchy (label, node, relType)
   await getattrReltype(label, nodeName, relType, ctx);
 
-  return { type: 'directory', mtime: now, atime: now, ctime: now };
+  return { type: "directory", mtime: now, atime: now, ctime: now };
 }
 
 /**
@@ -589,7 +638,7 @@ async function getattrTarget(
   relType: string,
   direction: Direction,
   targetName: string,
-  ctx: HandlerContext
+  ctx: HandlerContext,
 ): Promise<StatResult> {
   const now = new Date();
 
@@ -604,7 +653,7 @@ async function getattrTarget(
     relType,
     direction,
     ctx.config,
-    ctx.cache
+    ctx.cache,
   );
 
   // Build the target name map (same logic as readdirDirection)
@@ -624,10 +673,13 @@ async function getattrTarget(
   }
 
   if (!targetExists) {
-    throw new LpgfsError(`Target not found: ${targetName}`, POSIX_ERRORS.ENOENT);
+    throw new LpgfsError(
+      `Target not found: ${targetName}`,
+      POSIX_ERRORS.ENOENT,
+    );
   }
 
-  return { type: 'symlink', mtime: now, atime: now, ctime: now };
+  return { type: "symlink", mtime: now, atime: now, ctime: now };
 }
 
 /**
@@ -636,7 +688,7 @@ async function getattrTarget(
  */
 async function getattrProperties(
   pathContext: ReturnType<typeof parsePath>,
-  ctx: HandlerContext
+  ctx: HandlerContext,
 ): Promise<StatResult> {
   const now = new Date();
 
@@ -644,8 +696,8 @@ async function getattrProperties(
   if (pathContext.isConfigFile) {
     const content = getConfigContent(ctx);
     return {
-      type: 'file',
-      size: Buffer.byteLength(content, 'utf8'),
+      type: "file",
+      size: Buffer.byteLength(content, "utf8"),
       mtime: now,
       atime: now,
       ctime: now,
@@ -653,15 +705,21 @@ async function getattrProperties(
   }
 
   // Node properties file (.properties.json)
-  if (pathContext.isPropertiesFile && pathContext.label && pathContext.nodeName) {
-    // Validate the node exists
-    await getattrNode(pathContext.label, pathContext.nodeName, ctx);
+  if (
+    pathContext.isPropertiesFile &&
+    pathContext.label &&
+    pathContext.nodeName
+  ) {
+    // Get node properties to calculate actual file size
+    const content = await readNodeProperties(
+      pathContext.label,
+      pathContext.nodeName,
+      ctx,
+    );
 
-    // For now, we don't calculate actual size until read() is called
-    // Return a placeholder size (FUSE allows this)
     return {
-      type: 'file',
-      size: 0,
+      type: "file",
+      size: Buffer.byteLength(content, "utf8"),
       mtime: now,
       atime: now,
       ctime: now,
@@ -669,14 +727,18 @@ async function getattrProperties(
   }
 
   // Relationship properties file (.targetName.json)
-  if (pathContext.isRelPropertiesFile && pathContext.direction && pathContext.targetName) {
+  if (
+    pathContext.isRelPropertiesFile &&
+    pathContext.direction &&
+    pathContext.targetName
+  ) {
     // Validate the parent path
     await getattrDirection(
       pathContext.label!,
       pathContext.nodeName!,
       pathContext.relType!,
       pathContext.direction,
-      ctx
+      ctx,
     );
 
     // Get relationships and check if this target's property file exists
@@ -687,42 +749,29 @@ async function getattrProperties(
       pathContext.relType!,
       pathContext.direction,
       ctx.config,
-      ctx.cache
+      ctx.cache,
     );
 
-    // Build the target name map
-    const targetNameCounts = new Map<string, number>();
-    let fileExists = false;
-
-    for (const rel of relationships) {
-      const baseName = rel.targetName;
-      const count = targetNameCounts.get(baseName) || 0;
-      targetNameCounts.set(baseName, count + 1);
-
-      const displayName = count === 0 ? baseName : `${baseName}_${count}`;
-      if (displayName === pathContext.targetName) {
-        fileExists = true;
-        break;
-      }
-    }
-
-    if (!fileExists) {
-      throw new LpgfsError(
-        `Relationship properties file not found: .${pathContext.targetName}.json`,
-        POSIX_ERRORS.ENOENT
-      );
-    }
+    // Get the actual content to calculate size
+    const content = await readRelationshipProperties(
+      pathContext.label!,
+      pathContext.nodeName!,
+      pathContext.relType!,
+      pathContext.direction,
+      pathContext.targetName,
+      ctx,
+    );
 
     return {
-      type: 'file',
-      size: 0,
+      type: "file",
+      size: Buffer.byteLength(content, "utf8"),
       mtime: now,
       atime: now,
       ctime: now,
     };
   }
 
-  throw new LpgfsError('Properties file not found', POSIX_ERRORS.ENOENT);
+  throw new LpgfsError("Properties file not found", POSIX_ERRORS.ENOENT);
 }
 
 /**
@@ -750,7 +799,7 @@ async function getattrProperties(
  */
 export async function readlink(
   path: string,
-  ctx: HandlerContext
+  ctx: HandlerContext,
 ): Promise<string> {
   const pathContext = parsePath(path);
   const timer = ctx.logger.time();
@@ -759,7 +808,7 @@ export async function readlink(
 
   try {
     // readlink only applies to target symlinks
-    if (pathContext.type !== 'target') {
+    if (pathContext.type !== "target") {
       throw new LpgfsError(`Not a symlink: ${path}`, POSIX_ERRORS.ENOENT);
     }
 
@@ -771,7 +820,10 @@ export async function readlink(
       !pathContext.direction ||
       !pathContext.targetName
     ) {
-      throw new LpgfsError(`Invalid symlink path: ${path}`, POSIX_ERRORS.ENOENT);
+      throw new LpgfsError(
+        `Invalid symlink path: ${path}`,
+        POSIX_ERRORS.ENOENT,
+      );
     }
 
     // Get relationships to find target info
@@ -782,11 +834,14 @@ export async function readlink(
       pathContext.relType,
       pathContext.direction,
       ctx.config,
-      ctx.cache
+      ctx.cache,
     );
 
     if (relationships.length === 0) {
-      throw new LpgfsError(`No relationships found for symlink: ${path}`, POSIX_ERRORS.ENOENT);
+      throw new LpgfsError(
+        `No relationships found for symlink: ${path}`,
+        POSIX_ERRORS.ENOENT,
+      );
     }
 
     // Find the target relationship using the same suffix logic as readdirDirection and getattrTarget
@@ -806,7 +861,10 @@ export async function readlink(
     }
 
     if (!targetRel) {
-      throw new LpgfsError(`Target not found: ${pathContext.targetName}`, POSIX_ERRORS.ENOENT);
+      throw new LpgfsError(
+        `Target not found: ${pathContext.targetName}`,
+        POSIX_ERRORS.ENOENT,
+      );
     }
 
     // Build relative path based on whether same or different label
@@ -832,11 +890,17 @@ export async function readlink(
     return result;
   } catch (error) {
     if (error instanceof LpgfsError) {
-      ctx.logger.debug(`readlink: ${path} -> error`, { code: error.code, message: error.message });
+      ctx.logger.debug(`readlink: ${path} -> error`, {
+        code: error.code,
+        message: error.message,
+      });
       throw error;
     }
     ctx.logger.error(`readlink: ${path}`, error);
-    throw new LpgfsError(`readlink failed: ${(error as Error).message}`, POSIX_ERRORS.EIO);
+    throw new LpgfsError(
+      `readlink failed: ${(error as Error).message}`,
+      POSIX_ERRORS.EIO,
+    );
   }
 }
 
@@ -883,7 +947,7 @@ export async function read(
   path: string,
   ctx: HandlerContext,
   offset: number = 0,
-  length?: number
+  length?: number,
 ): Promise<ReadResult> {
   const pathContext = parsePath(path);
   const timer = ctx.logger.time();
@@ -892,7 +956,7 @@ export async function read(
 
   try {
     // Only property files can be read
-    if (pathContext.type !== 'properties') {
+    if (pathContext.type !== "properties") {
       throw new LpgfsError(`Not a file: ${path}`, POSIX_ERRORS.ENOENT);
     }
 
@@ -903,11 +967,15 @@ export async function read(
       content = getConfigContent(ctx);
     }
     // Node properties file (.properties.json)
-    else if (pathContext.isPropertiesFile && pathContext.label && pathContext.nodeName) {
+    else if (
+      pathContext.isPropertiesFile &&
+      pathContext.label &&
+      pathContext.nodeName
+    ) {
       content = await readNodeProperties(
         pathContext.label,
         pathContext.nodeName,
-        ctx
+        ctx,
       );
     }
     // Relationship properties file (.targetName.json)
@@ -925,7 +993,7 @@ export async function read(
         pathContext.relType,
         pathContext.direction,
         pathContext.targetName,
-        ctx
+        ctx,
       );
     }
     // Unknown file type
@@ -934,14 +1002,15 @@ export async function read(
     }
 
     // Calculate total size in bytes
-    const totalSize = Buffer.byteLength(content, 'utf8');
+    const totalSize = Buffer.byteLength(content, "utf8");
 
     // Handle offset and length for partial reads
     if (offset > 0 || length !== undefined) {
-      const contentBuffer = Buffer.from(content, 'utf8');
-      const end = length !== undefined ? Math.min(offset + length, totalSize) : totalSize;
+      const contentBuffer = Buffer.from(content, "utf8");
+      const end =
+        length !== undefined ? Math.min(offset + length, totalSize) : totalSize;
       const sliced = contentBuffer.subarray(offset, end);
-      content = sliced.toString('utf8');
+      content = sliced.toString("utf8");
     }
 
     timer.end(`read: ${path}`, { size: totalSize, returned: content.length });
@@ -951,11 +1020,17 @@ export async function read(
     };
   } catch (error) {
     if (error instanceof LpgfsError) {
-      ctx.logger.debug(`read: ${path} -> error`, { code: error.code, message: error.message });
+      ctx.logger.debug(`read: ${path} -> error`, {
+        code: error.code,
+        message: error.message,
+      });
       throw error;
     }
     ctx.logger.error(`read: ${path}`, error);
-    throw new LpgfsError(`read failed: ${(error as Error).message}`, POSIX_ERRORS.EIO);
+    throw new LpgfsError(
+      `read failed: ${(error as Error).message}`,
+      POSIX_ERRORS.EIO,
+    );
   }
 }
 
@@ -971,18 +1046,21 @@ export async function read(
 async function readNodeProperties(
   label: string,
   nodeName: string,
-  ctx: HandlerContext
+  ctx: HandlerContext,
 ): Promise<string> {
   const props = await getNodeProperties(
     ctx.db,
     label,
     nodeName,
     ctx.config,
-    ctx.cache
+    ctx.cache,
   );
 
   if (props === null) {
-    throw new LpgfsError(`Node not found: ${label}/${nodeName}`, POSIX_ERRORS.ENOENT);
+    throw new LpgfsError(
+      `Node not found: ${label}/${nodeName}`,
+      POSIX_ERRORS.ENOENT,
+    );
   }
 
   // Return formatted JSON with 2-space indentation for readability
@@ -1011,7 +1089,7 @@ async function readRelationshipProperties(
   relType: string,
   direction: Direction,
   targetName: string,
-  ctx: HandlerContext
+  ctx: HandlerContext,
 ): Promise<string> {
   // Get relationships to find the matching one
   const relationships = await getRelationships(
@@ -1021,13 +1099,13 @@ async function readRelationshipProperties(
     relType,
     direction,
     ctx.config,
-    ctx.cache
+    ctx.cache,
   );
 
   if (relationships.length === 0) {
     throw new LpgfsError(
       `No relationships found: ${label}/${nodeName}/${relType}/${direction}`,
-      POSIX_ERRORS.ENOENT
+      POSIX_ERRORS.ENOENT,
     );
   }
 
@@ -1050,24 +1128,24 @@ async function readRelationshipProperties(
   if (!matchedRel) {
     throw new LpgfsError(
       `Relationship not found: ${label}/${nodeName}/${relType}/${direction}/.${targetName}.json`,
-      POSIX_ERRORS.ENOENT
+      POSIX_ERRORS.ENOENT,
     );
   }
 
   // Per PRD section 5.2.4: OUT side has canonical properties, IN side has _ref
-  if (direction === 'OUT') {
+  if (direction === "OUT") {
     // Fetch full relationship properties from database
     const props = await getRelationshipProperties(
       ctx.db,
       matchedRel.relElementId,
-      ctx.cache
+      ctx.cache,
     );
 
     if (props === null) {
       // This shouldn't happen if we found the relationship above, but handle it
       throw new LpgfsError(
         `Relationship properties not found: ${matchedRel.relElementId}`,
-        POSIX_ERRORS.ENOENT
+        POSIX_ERRORS.ENOENT,
       );
     }
 
@@ -1089,7 +1167,7 @@ async function readRelationshipProperties(
 /**
  * Error message for read-only filesystem operations.
  */
-const EROFS_MESSAGE = 'LPGFS is read-only';
+const EROFS_MESSAGE = "LPGFS is read-only";
 
 /**
  * Write data to a file.
@@ -1106,7 +1184,7 @@ export function write(
   _path: string,
   _data: Buffer | string,
   _offset: number,
-  _ctx: HandlerContext
+  _ctx: HandlerContext,
 ): never {
   throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
 }
@@ -1124,7 +1202,7 @@ export function write(
 export function mkdir(
   _path: string,
   _mode: number,
-  _ctx: HandlerContext
+  _ctx: HandlerContext,
 ): never {
   throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
 }
@@ -1168,7 +1246,7 @@ export function rmdir(_path: string, _ctx: HandlerContext): never {
 export function rename(
   _srcPath: string,
   _destPath: string,
-  _ctx: HandlerContext
+  _ctx: HandlerContext,
 ): never {
   throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
 }
@@ -1186,7 +1264,7 @@ export function rename(
 export function symlink(
   _target: string,
   _linkPath: string,
-  _ctx: HandlerContext
+  _ctx: HandlerContext,
 ): never {
   throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
 }
@@ -1204,7 +1282,7 @@ export function symlink(
 export function link(
   _srcPath: string,
   _destPath: string,
-  _ctx: HandlerContext
+  _ctx: HandlerContext,
 ): never {
   throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
 }
@@ -1222,7 +1300,7 @@ export function link(
 export function truncate(
   _path: string,
   _size: number,
-  _ctx: HandlerContext
+  _ctx: HandlerContext,
 ): never {
   throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
 }
@@ -1240,7 +1318,7 @@ export function truncate(
 export function chmod(
   _path: string,
   _mode: number,
-  _ctx: HandlerContext
+  _ctx: HandlerContext,
 ): never {
   throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
 }
@@ -1260,7 +1338,7 @@ export function chown(
   _path: string,
   _uid: number,
   _gid: number,
-  _ctx: HandlerContext
+  _ctx: HandlerContext,
 ): never {
   throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
 }
@@ -1280,7 +1358,7 @@ export function utimens(
   _path: string,
   _atime: Date | number,
   _mtime: Date | number,
-  _ctx: HandlerContext
+  _ctx: HandlerContext,
 ): never {
   throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
 }
@@ -1298,7 +1376,7 @@ export function utimens(
 export function create(
   _path: string,
   _mode: number,
-  _ctx: HandlerContext
+  _ctx: HandlerContext,
 ): never {
   throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
 }
@@ -1318,7 +1396,7 @@ export function mknod(
   _path: string,
   _mode: number,
   _dev: number,
-  _ctx: HandlerContext
+  _ctx: HandlerContext,
 ): never {
   throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
 }
@@ -1340,7 +1418,7 @@ export function setxattr(
   _name: string,
   _value: Buffer,
   _flags: number,
-  _ctx: HandlerContext
+  _ctx: HandlerContext,
 ): never {
   throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
 }
@@ -1358,7 +1436,7 @@ export function setxattr(
 export function removexattr(
   _path: string,
   _name: string,
-  _ctx: HandlerContext
+  _ctx: HandlerContext,
 ): never {
   throw new LpgfsError(EROFS_MESSAGE, POSIX_ERRORS.EROFS);
 }

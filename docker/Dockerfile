@@ -1,8 +1,8 @@
 FROM --platform=linux/amd64 node:20-bullseye
 
-# Install FUSE, build tools, sudo, kmod, and nano
+# Install FUSE, build tools, sudo, kmod, nano, and jq
 RUN apt-get update && \
-    apt-get install -y fuse libfuse-dev build-essential python3 sudo kmod nano && \
+    apt-get install -y fuse libfuse-dev build-essential python3 sudo kmod nano jq && \
     rm -rf /var/lib/apt/lists/*
 
 # Configure FUSE to allow non-root users
