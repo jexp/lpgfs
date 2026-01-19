@@ -683,3 +683,23 @@
 - None - typecheck and all 386 tests pass
 - Script can be run with: `cat seed.cypher | cypher-shell -u neo4j -p password`
 - Verification queries included in comments at end of file
+
+## Task 031: Manual integration test: mount & traverse
+- **Status:** Completed
+- **PRD Reference:** Section 6 (Traversal Examples), Appendix A (Complete Example)
+
+### Key Decisions
+- Created comprehensive manual test script covering all PRD examples
+- Organized tests by functionality: mount/unmount, basic navigation, multi-hop traversal, reverse traversal, cross-label relationships, edge cases
+- Included prerequisite instructions for FUSE libraries, Neo4j setup, and seed data
+- Added test checklist for systematic verification
+- Included troubleshooting section for common issues
+- Tests verify all PRD section 6 examples and section 8 edge cases
+
+### Files Changed
+- test/manual.md (new): Manual integration test script with 23 test scenarios
+
+### Blockers/Notes
+- None - typecheck and all 386 tests pass
+- Tests require: FUSE libraries, running Neo4j instance, seeded test data
+- Tests should be run with `--foreground --debug` flags for visibility

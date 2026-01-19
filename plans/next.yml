@@ -851,7 +851,7 @@ parentID: "lpgfs-foundation"
 dependsOn:
   - "task-029"
   - "task-030"
-completed: false
+completed: true
 ---
 id: "task-032"
 title: "Manual test: config naming strategies"
