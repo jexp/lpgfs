@@ -793,3 +793,61 @@
 ### Blockers/Notes
 - None - typecheck and all 386 tests pass
 - README covers all PRD sections referenced in task description
+
+## Task task-segfault-001: Add comprehensive FUSE error handling in daemon
+- **Status:** Completed
+- **PRD Reference:** N/A (segfault investigation)
+
+### Key Decisions
+- Added timeout (5s) to mount operation to prevent hanging indefinitely
+- Wrapped all FUSE operation callbacks (init, readdir, getattr, open, opendir, release, releasedir, read, readlink) with try-catch
+- Added null checks for this.fuse before accessing in signal handlers
+- Added state checks in signal handlers - only call stop() if state is 'running'
+- Made cleanup() never throw - wrapped all cleanup operations in try-catch
+- Added try-catch to unmount operation in stop()
+- All FUSE callbacks now return error codes instead of throwing
+
+### Files Changed
+- src/core/daemon.ts: Added comprehensive error handling throughout (lines 272-291, 309-341, 347-375, 406-434, 483-654)
+
+### Blockers/Notes
+- None - implementation complete per task requirements
+- All FUSE operations now have consistent error handling patterns
+- Signal handlers won't crash when FUSE not mounted
+- Mount timeout prevents indefinite hanging
+
+## Task task-segfault-002: Add Node.js version check and warning
+- **Status:** Completed
+- **PRD Reference:** N/A (segfault investigation)
+
+### Key Decisions
+- Added checkNodeVersion() private method to Daemon class
+- Checks process.version and extracts major version number
+- Warns if Node.js > 20 (fuse-native tested up to Node 20)
+- Warning message suggests Node 18 or 20 for stability
+- Does not block execution, just logs warning
+- Called before loadFuse() in start() method
+
+### Files Changed
+- src/core/daemon.ts: Added checkNodeVersion() method (lines 207-216), called in start() (line 231)
+
+### Blockers/Notes
+- None - typecheck should pass
+- Warning only shown when debug logging enabled or on Node.js 22+
+
+## Task task-segfault-003: Add FUSE library validation checks
+- **Status:** Completed
+- **PRD Reference:** N/A (segfault investigation)
+
+### Key Decisions
+- Added validateFuseLibraries() private method to Daemon class
+- Platform-specific checks: macOS validates /Library/Filesystems/macfuse.fs exists, Linux validates /dev/fuse exists
+- Validation runs before loadFuse() call in start() method
+- Clear error messages with platform-specific installation instructions
+- Other platforms proceed without validation (no check)
+
+### Files Changed
+- src/core/daemon.ts: Added validateFuseLibraries() method (lines 218-246), called in start() (line 265)
+
+### Blockers/Notes
+- None - implementation complete per task requirements

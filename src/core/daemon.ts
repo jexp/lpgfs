@@ -202,6 +202,50 @@ export class Daemon {
   }
 
   /**
+   * Check Node.js version and warn if potentially unstable with fuse-native.
+   */
+  private checkNodeVersion(): void {
+    const version = process.version;
+    const majorVersion = parseInt(version.slice(1).split('.')[0], 10);
+
+    if (majorVersion > 20) {
+      this.logger.warn(
+        `Running on Node.js ${version}. fuse-native may be unstable on Node.js 22+, consider Node 18 or 20 for stability.`
+      );
+    }
+  }
+
+  /**
+   * Validate FUSE libraries are installed on the system.
+   * Checks platform-specific FUSE paths before attempting mount.
+   */
+  private validateFuseLibraries(): void {
+    const platform = process.platform;
+
+    if (platform === 'darwin') {
+      // macOS - check for macFUSE installation
+      if (!existsSync('/Library/Filesystems/macfuse.fs')) {
+        throw new Error(
+          'macFUSE not found. Install from https://osxfuse.github.io/\n' +
+            'After installation, restart your terminal and try again.'
+        );
+      }
+    } else if (platform === 'linux') {
+      // Linux - check for /dev/fuse device
+      if (!existsSync('/dev/fuse')) {
+        throw new Error(
+          'FUSE device not found. Install FUSE libraries:\n' +
+            '  Ubuntu/Debian: sudo apt install fuse libfuse-dev\n' +
+            '  Fedora/RHEL: sudo dnf install fuse fuse-devel\n' +
+            '  Arch: sudo pacman -S fuse2\n' +
+            'Then load the FUSE kernel module: sudo modprobe fuse'
+        );
+      }
+    }
+    // Other platforms - proceed without validation
+  }
+
+  /**
    * Start the daemon and mount the filesystem.
    */
   async start(): Promise<void> {
@@ -213,6 +257,13 @@ export class Daemon {
     const debug = this.mountOptions.debug ?? false;
 
     try {
+      // Check Node.js version
+      this.checkNodeVersion();
+
+      // Validate FUSE libraries are installed
+      this.logger.info('Validating FUSE libraries...');
+      this.validateFuseLibraries();
+
       // Load fuse-native
       this.logger.info('Loading fuse-native module...');
       const FuseModule = loadFuse();
@@ -270,13 +321,24 @@ export class Daemon {
       // Mount filesystem
       this.logger.info(`Mounting filesystem at ${this.mountpoint}...`);
       await new Promise<void>((resolve, reject) => {
-        this.fuse!.mount((err) => {
-          if (err) {
-            reject(new Error(`Failed to mount filesystem: ${err.message}`));
-          } else {
-            resolve();
-          }
-        });
+        // Add timeout to prevent hanging indefinitely
+        const timeout = setTimeout(() => {
+          reject(new Error('Mount operation timed out after 5 seconds'));
+        }, 5000);
+
+        try {
+          this.fuse!.mount((err) => {
+            clearTimeout(timeout);
+            if (err) {
+              reject(new Error(`Failed to mount filesystem: ${err.message}`));
+            } else {
+              resolve();
+            }
+          });
+        } catch (err) {
+          clearTimeout(timeout);
+          reject(err);
+        }
       });
 
       // Register signal handlers for clean shutdown
@@ -309,15 +371,19 @@ export class Daemon {
     // Unmount FUSE
     if (this.fuse) {
       this.logger.info('Unmounting filesystem...');
-      await new Promise<void>((resolve, reject) => {
-        this.fuse!.unmount((err) => {
-          if (err) {
-            // Ignore unmount errors - may already be unmounted
-            this.logger.warn(`Unmount warning: ${err.message}`);
-          }
-          resolve();
+      try {
+        await new Promise<void>((resolve, reject) => {
+          this.fuse!.unmount((err) => {
+            if (err) {
+              // Ignore unmount errors - may already be unmounted
+              this.logger.warn(`Unmount warning: ${err.message}`);
+            }
+            resolve();
+          });
         });
-      });
+      } catch (err) {
+        this.logger.warn('Error during unmount', err);
+      }
     }
 
     await this.cleanup();
@@ -327,20 +393,31 @@ export class Daemon {
 
   /**
    * Clean up resources.
+   * This method must never throw exceptions to ensure cleanup always succeeds.
    */
   private async cleanup(): Promise<void> {
     // Close database connection
     if (this.db) {
-      this.logger.debug('Closing database connection...');
-      await this.db.close();
-      this.db = null;
+      try {
+        this.logger.debug('Closing database connection...');
+        await this.db.close();
+      } catch (err) {
+        this.logger.warn('Error closing database connection', err);
+      } finally {
+        this.db = null;
+      }
     }
 
     // Clear cache
     if (this.cache) {
-      this.logger.debug('Clearing cache...');
-      this.cache.clear();
-      this.cache = null;
+      try {
+        this.logger.debug('Clearing cache...');
+        this.cache.clear();
+      } catch (err) {
+        this.logger.warn('Error clearing cache', err);
+      } finally {
+        this.cache = null;
+      }
     }
 
     this.handlerContext = null;
@@ -397,6 +474,13 @@ export class Daemon {
 
     for (const signal of signals) {
       const handler = () => {
+        // Check state before attempting to stop
+        if (this.state !== 'running') {
+          console.log(`\n[lpgfs] Received ${signal}, but daemon is not running (state: ${this.state})`);
+          process.exit(0);
+          return;
+        }
+
         // Always log signal reception (not gated by debug)
         console.log(`\n[lpgfs] Received ${signal}, shutting down...`);
         this.stop()
@@ -448,131 +532,176 @@ export class Daemon {
     return {
       // Initialization
       init: (cb) => {
-        logger.debug('FUSE initialized');
-        cb(0);
+        try {
+          logger.debug('FUSE initialized');
+          cb(0);
+        } catch (err) {
+          logger.error('Error in init callback', err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       // Directory listing
       readdir: (path, cb) => {
-        readdir(path, ctx)
-          .then((entries) => {
-            cb(0, entries.map((e) => e.name));
-          })
-          .catch((err) => {
-            if (err instanceof LpgfsError) {
-              cb(err.code);
-            } else {
-              // Unexpected error - handlers should wrap all errors, but log just in case
-              logger.error(`readdir unexpected error: ${path}`, err);
-              cb(POSIX_ERRORS.EIO);
-            }
-          });
+        try {
+          readdir(path, ctx)
+            .then((entries) => {
+              cb(0, entries.map((e) => e.name));
+            })
+            .catch((err) => {
+              if (err instanceof LpgfsError) {
+                cb(err.code);
+              } else {
+                // Unexpected error - handlers should wrap all errors, but log just in case
+                logger.error(`readdir unexpected error: ${path}`, err);
+                cb(POSIX_ERRORS.EIO);
+              }
+            });
+        } catch (err) {
+          logger.error(`readdir synchronous error: ${path}`, err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       // File/directory attributes
       getattr: (path, cb) => {
-        getattr(path, ctx)
-          .then((stat) => {
-            let mode: number;
-            switch (stat.type) {
-              case 'directory':
-                mode = DIR_MODE;
-                break;
-              case 'file':
-                mode = FILE_MODE;
-                break;
-              case 'symlink':
-                mode = LINK_MODE;
-                break;
-              default:
-                mode = FILE_MODE;
-            }
+        try {
+          getattr(path, ctx)
+            .then((stat) => {
+              let mode: number;
+              switch (stat.type) {
+                case 'directory':
+                  mode = DIR_MODE;
+                  break;
+                case 'file':
+                  mode = FILE_MODE;
+                  break;
+                case 'symlink':
+                  mode = LINK_MODE;
+                  break;
+                default:
+                  mode = FILE_MODE;
+              }
 
-            const fuseStats: FuseStats = {
-              mtime: stat.mtime ?? new Date(),
-              atime: stat.atime ?? new Date(),
-              ctime: stat.ctime ?? new Date(),
-              size: stat.size ?? 0,
-              mode,
-              uid,
-              gid,
-              nlink: stat.type === 'directory' ? 2 : 1,
-            };
+              const fuseStats: FuseStats = {
+                mtime: stat.mtime ?? new Date(),
+                atime: stat.atime ?? new Date(),
+                ctime: stat.ctime ?? new Date(),
+                size: stat.size ?? 0,
+                mode,
+                uid,
+                gid,
+                nlink: stat.type === 'directory' ? 2 : 1,
+              };
 
-            cb(0, fuseStats);
-          })
-          .catch((err) => {
-            if (err instanceof LpgfsError) {
-              cb(err.code);
-            } else {
-              // Unexpected error - handlers should wrap all errors, but log just in case
-              logger.error(`getattr unexpected error: ${path}`, err);
-              cb(POSIX_ERRORS.EIO);
-            }
-          });
+              cb(0, fuseStats);
+            })
+            .catch((err) => {
+              if (err instanceof LpgfsError) {
+                cb(err.code);
+              } else {
+                // Unexpected error - handlers should wrap all errors, but log just in case
+                logger.error(`getattr unexpected error: ${path}`, err);
+                cb(POSIX_ERRORS.EIO);
+              }
+            });
+        } catch (err) {
+          logger.error(`getattr synchronous error: ${path}`, err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       // Open file (no-op for read-only FS)
       open: (path, flags, cb) => {
-        // Just return a dummy file descriptor
-        cb(0, 42);
+        try {
+          // Just return a dummy file descriptor
+          cb(0, 42);
+        } catch (err) {
+          logger.error(`open error: ${path}`, err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       // Open directory (no-op)
       opendir: (path, flags, cb) => {
-        cb(0, 43);
+        try {
+          cb(0, 43);
+        } catch (err) {
+          logger.error(`opendir error: ${path}`, err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       // Close file (no-op)
       release: (path, fd, cb) => {
-        cb(0);
+        try {
+          cb(0);
+        } catch (err) {
+          logger.error(`release error: ${path}`, err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       // Close directory (no-op)
       releasedir: (path, fd, cb) => {
-        cb(0);
+        try {
+          cb(0);
+        } catch (err) {
+          logger.error(`releasedir error: ${path}`, err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       // Read file contents
       read: (path, fd, buffer, length, position, cb) => {
-        read(path, ctx, position, length)
-          .then((result) => {
-            if (position >= result.size) {
-              // End of file
-              cb(0);
-              return;
-            }
+        try {
+          read(path, ctx, position, length)
+            .then((result) => {
+              if (position >= result.size) {
+                // End of file
+                cb(0);
+                return;
+              }
 
-            const content = Buffer.from(result.content, 'utf8');
-            content.copy(buffer);
-            cb(content.length);
-          })
-          .catch((err) => {
-            if (err instanceof LpgfsError) {
-              cb(err.code);
-            } else {
-              // Unexpected error - handlers should wrap all errors, but log just in case
-              logger.error(`read unexpected error: ${path}`, err);
-              cb(POSIX_ERRORS.EIO);
-            }
-          });
+              const content = Buffer.from(result.content, 'utf8');
+              content.copy(buffer);
+              cb(content.length);
+            })
+            .catch((err) => {
+              if (err instanceof LpgfsError) {
+                cb(err.code);
+              } else {
+                // Unexpected error - handlers should wrap all errors, but log just in case
+                logger.error(`read unexpected error: ${path}`, err);
+                cb(POSIX_ERRORS.EIO);
+              }
+            });
+        } catch (err) {
+          logger.error(`read synchronous error: ${path}`, err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       // Read symlink target
       readlink: (path, cb) => {
-        readlink(path, ctx)
-          .then((target) => {
-            cb(0, target);
-          })
-          .catch((err) => {
-            if (err instanceof LpgfsError) {
-              cb(err.code);
-            } else {
-              // Unexpected error - handlers should wrap all errors, but log just in case
-              logger.error(`readlink unexpected error: ${path}`, err);
-              cb(POSIX_ERRORS.EIO);
-            }
-          });
+        try {
+          readlink(path, ctx)
+            .then((target) => {
+              cb(0, target);
+            })
+            .catch((err) => {
+              if (err instanceof LpgfsError) {
+                cb(err.code);
+              } else {
+                // Unexpected error - handlers should wrap all errors, but log just in case
+                logger.error(`readlink unexpected error: ${path}`, err);
+                cb(POSIX_ERRORS.EIO);
+              }
+            });
+        } catch (err) {
+          logger.error(`readlink synchronous error: ${path}`, err);
+          cb(POSIX_ERRORS.EIO);
+        }
       },
 
       // Write operations - all return EROFS

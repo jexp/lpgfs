@@ -39,3 +39,16 @@ src/
 - [CLI](docs/cli.md) - Argument parsing and options
 - [Logging](docs/logging.md) - Logger and Timer
 - [Error Handling](docs/error-handling.md) - Error patterns and POSIX codes
+
+## Learnings
+
+**FUSE Error Handling:**
+- fuse-native callbacks MUST be wrapped in try-catch - synchronous errors can cause segfaults
+- All FUSE callbacks must call their callback exactly once - never throw
+- Signal handlers need state checks - don't call stop() if not running
+- Mount operations can hang - use timeout (5s) to fail fast
+- cleanup() must never throw - wrap all cleanup in try-catch
+- fuse-native stability tested up to Node.js 20 - warn users on Node.js 22+
+- Validate FUSE libraries installed before loadFuse() - prevents confusing errors
+  - macOS: /Library/Filesystems/macfuse.fs
+  - Linux: /dev/fuse

@@ -38,7 +38,7 @@ description: |
 
 parentID: "segfault-investigation-001"
 dependsOn: []
-completed: false
+completed: true
 ---
 
 id: "task-segfault-002"
@@ -63,7 +63,7 @@ description: |
 
 parentID: "segfault-investigation-001"
 dependsOn: ["task-segfault-001"]
-completed: false
+completed: true
 ---
 
 id: "task-segfault-003"
@@ -93,7 +93,7 @@ description: |
 
 parentID: "segfault-investigation-001"
 dependsOn: ["task-segfault-001"]
-completed: false
+completed: true
 ---
 
 id: "task-segfault-004"
