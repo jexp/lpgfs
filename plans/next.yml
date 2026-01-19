@@ -8,7 +8,6 @@ description: |
   - Missing graceful degradation for FUSE errors
 completed: true
 ---
-
 id: "task-segfault-001"
 title: "Add comprehensive FUSE error handling in daemon"
 description: |
@@ -40,7 +39,6 @@ parentID: "segfault-investigation-001"
 dependsOn: []
 completed: true
 ---
-
 id: "task-segfault-002"
 title: "Add Node.js version check and warning"
 description: |
@@ -65,7 +63,6 @@ parentID: "segfault-investigation-001"
 dependsOn: ["task-segfault-001"]
 completed: true
 ---
-
 id: "task-segfault-003"
 title: "Add FUSE library validation checks"
 description: |
@@ -95,7 +92,6 @@ parentID: "segfault-investigation-001"
 dependsOn: ["task-segfault-001"]
 completed: true
 ---
-
 id: "task-segfault-004"
 title: "Add graceful FUSE operations error handling"
 description: |
@@ -125,7 +121,6 @@ parentID: "segfault-investigation-001"
 dependsOn: ["task-segfault-001"]
 completed: true
 ---
-
 id: "task-segfault-005"
 title: "Add process.on('uncaughtException') handler"
 description: |
@@ -154,7 +149,6 @@ parentID: "segfault-investigation-001"
 dependsOn: ["task-segfault-001"]
 completed: true
 ---
-
 id: "task-segfault-006"
 title: "Add connection test before FUSE mount"
 description: |
@@ -183,7 +177,6 @@ parentID: "segfault-investigation-001"
 dependsOn: ["task-segfault-001"]
 completed: true
 ---
-
 id: "task-segfault-007"
 title: "Update README with troubleshooting section"
 description: |
@@ -218,7 +211,6 @@ dependsOn:
   - "task-segfault-006"
 completed: true
 ---
-
 id: "task-segfault-008"
 title: "Add integration test for mount error scenarios"
 description: |
@@ -254,3 +246,16 @@ dependsOn:
   - "task-segfault-005"
   - "task-segfault-006"
 completed: true
+---
+id: "task-segfault-009"
+title: "Verify tests and build"
+description: |
+  Run tests and build.
+
+  **Acceptance criteria:**
+  - npm run test
+  - npm run build passes
+
+parentID: "segfault-investigation-001"
+dependsOn:
+completed: false

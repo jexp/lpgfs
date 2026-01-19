@@ -38,6 +38,7 @@ Before committing, run the feedback loops:
 
 - `npm run test` to run the unit tests, if setup
 - `npm run tsc` to run the type checker
+- `npm run build` to run the build
 - If CLI or script, run them and verify output.
 
 # PROGRESS
