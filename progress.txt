@@ -654,3 +654,32 @@
 - None - typecheck and all 386 tests pass
 - Debug logging is enabled via `--debug` CLI flag
 - All FUSE operations now have consistent error handling and logging patterns
+
+## Task 030: Create sample Neo4j dataset
+- **Status:** Completed
+- **PRD Reference:** Appendix A (Complete Example)
+
+### Key Decisions
+- Created Cypher script based on PRD Appendix A social network example
+- Includes Person nodes: alice, james, bob, carol, newuser (5 total)
+- Includes Company nodes: acme, globex (2 total)
+- All Person nodes have username property for naming strategy testing
+- Created comprehensive relationship set:
+  - KNOWS relationships (person to person, 5 total)
+  - WORKS_AT relationships (cross-label person to company, 4 total)
+  - TRANSFERRED relationships (multiple between same nodes for section 8.1, 3 total)
+  - Self-referential relationships (MANAGES, FOLLOWS for section 8.2)
+- Edge cases from section 8 included:
+  - Section 8.1: Multiple rels same type (alice TRANSFERRED to james x3)
+  - Section 8.2: Self-referential (alice MANAGES alice, bob FOLLOWS bob)
+  - Section 8.3: Node with no relationships (newuser)
+- Script includes cleanup (MATCH (n) DETACH DELETE n) for repeatable seeding
+- Relationship properties included: since, strength, role, amount, date, description
+
+### Files Changed
+- test/seed.cypher (new): Cypher script to seed test data
+
+### Blockers/Notes
+- None - typecheck and all 386 tests pass
+- Script can be run with: `cat seed.cypher | cypher-shell -u neo4j -p password`
+- Verification queries included in comments at end of file

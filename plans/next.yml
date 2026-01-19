@@ -821,7 +821,7 @@ description: |
   - Follow Appendix A for structure
 parentID: "lpgfs-foundation"
 dependsOn: []
-completed: false
+completed: true
 ---
 id: "task-031"
 title: "Manual integration test: mount & traverse"
