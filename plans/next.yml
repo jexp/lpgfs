@@ -259,3 +259,18 @@ description: |
 parentID: "segfault-investigation-001"
 dependsOn:
 completed: true
+---
+id: "task-segfault-010"
+title: "Verify .properties populated"
+description: |
+  In manual tests, the .properties files on nodes don't populate.
+  Person/4_b6465e28-cc9b-4c48-be48-95de50b719d9_23/.properties.json is empty for example.
+
+  You can run the docker/run.sh to create a docker image so you can mount inside it.
+
+  **Acceptance criteria:**
+  - cat Person/4_b6465e28-cc9b-4c48-be48-95de50b719d9_23/.properties.json` in the docker container should output Kevin Pollak.
+
+parentID: "segfault-investigation-001"
+dependsOn:
+completed: false
