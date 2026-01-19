@@ -9,7 +9,7 @@ fi
 for ((i=1; i<=$1; i++)); do
   echo "==== Starting iteration $i of $1 ===="
 
-  result=$(claude -p "@progress.txt @plans/xloop/prompt.md @plans/next.yml @AGENTS.md")
+  result=$(claude -p "@progress.txt @plans/xloop/prompt.md @plans/next.yml @AGENTS.md. Always commit when task is finished.")
 
   echo "$result"
 
