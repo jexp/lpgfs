@@ -281,11 +281,17 @@ export class DatabaseConnection {
     }
 
     // Handle plain objects (properties)
+    // Neo4j returns properties as plain objects, but nested values may need transformation
     if (typeof value === 'object' && value !== null) {
       const obj: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-        obj[k] = this.transformValue(v);
+
+      // Iterate over all own enumerable properties
+      for (const key in value) {
+        if (Object.prototype.hasOwnProperty.call(value, key)) {
+          obj[key] = this.transformValue((value as Record<string, unknown>)[key]);
+        }
       }
+
       return obj;
     }
 

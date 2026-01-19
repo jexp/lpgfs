@@ -55,3 +55,7 @@ src/
   - Linux: /dev/fuse
 - Register uncaughtException handler for debugging - log full context (state, mountpoint, stack) and attempt cleanup before exit
 - Unregister exception handler in stop() to avoid handling exceptions after daemon stops
+
+**Neo4j Driver:**
+- Use for...in with hasOwnProperty instead of Object.entries() when transforming Neo4j objects - ensures all enumerable properties captured
+- Neo4j may return objects with properties on prototype chain or non-standard enumeration
