@@ -771,3 +771,25 @@
 - None - typecheck and all 386 tests pass
 - Script should be run AFTER seed.cypher (does not clear data)
 - Special char tests verify sanitization logic works correctly
+
+## Task 034: Write README with quickstart
+- **Status:** Completed
+- **PRD Reference:** Section 12.7 (Mount Options)
+
+### Key Decisions
+- Replaced placeholder README with comprehensive documentation
+- Included installation instructions with FUSE library requirements
+- Documented all CLI options from section 12.7 in a table
+- Added filesystem structure diagram showing hierarchy
+- Included configuration file examples with all options
+- Documented naming strategies (elementId vs property)
+- Added traversal examples: multi-hop, reverse, cross-label
+- Documented edge cases: multiple rels, self-referential, nodes without rels
+- Listed limitations (read-only, no real-time updates)
+
+### Files Changed
+- README.md: Complete rewrite with quickstart guide and full documentation
+
+### Blockers/Notes
+- None - typecheck and all 386 tests pass
+- README covers all PRD sections referenced in task description
