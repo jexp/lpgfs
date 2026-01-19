@@ -1,0 +1,29 @@
+naming:
+  # Default: 'elementId' (stable, unique) or 'property' (human-readable)
+  default: property
+  overrides:
+    nodes:
+      Person:
+        property: "name" # Use username property for Person nodes
+      Movie:
+        property: "title" # Use name property for Company nodes
+
+# Character sanitization for filenames
+sanitization:
+  replace:
+    "/": "_"
+    " ": "_"
+    "\\ ": "_"
+    "\\": "_"
+    ":": "_"
+    "*": "_"
+    "?": "_"
+    '"': "_"
+    "<": "_"
+    ">": "_"
+    "|": "_"
+
+# Collision handling when property names clash
+collision:
+  strategy: suffix_elementId # Append _<elementId> to duplicates
+  # Or: strategy: fail          # Raise error on collision
