@@ -614,3 +614,43 @@
 - None - typecheck and all 362 tests pass
 - True background daemonization (fork) not implemented; use --foreground flag
 - fuse-native requires FUSE libraries installed on target system
+
+## Task 029: Implement error handling & logging
+- **Status:** Completed
+- **PRD Reference:** Section 12.8 (Error Handling)
+
+### Key Decisions
+- Created centralized `Logger` class in `src/core/logger.ts`:
+  - Supports debug, info, warn, and error log levels
+  - Debug/info/warn messages gated by `enabled` flag
+  - Error messages always logged (important for debugging)
+  - Child loggers with sub-prefix support (`logger.child('fuse')`)
+  - Timer utility for measuring operation duration (`logger.time()`)
+  - Consistent formatting with `[prefix]` prefix
+- Updated all FUSE handlers (`readdir`, `getattr`, `readlink`, `read`) with:
+  - Try/catch wrapping for all operations
+  - Timing information for operations
+  - Error logging with path and error details
+  - Unexpected errors wrapped to `LpgfsError(EIO)` with logging
+  - `LpgfsError` instances re-thrown with debug logging
+- Updated Daemon class to use Logger throughout lifecycle:
+  - Startup: logs each initialization step (config, db, cache, mount)
+  - Shutdown: logs unmount progress and cleanup
+  - Signal handling: logs received signals
+  - FUSE ops: logs unexpected errors (handlers log expected errors)
+- Error mapping to POSIX codes:
+  - `ENOENT` (-2): Path/entity not found
+  - `EIO` (-5): Database or I/O error
+  - `EROFS` (-30): Write operation on read-only FS
+- DB connection already had retry logging from task-006
+
+### Files Changed
+- src/core/logger.ts (new): Logger class with Timer, child loggers, and formatted output
+- src/core/logger.test.ts (new): 24 tests for logger functionality
+- src/fuse/handlers.ts: Added logger to HandlerContext, wrapped all ops in try/catch with logging
+- src/core/daemon.ts: Replaced console.log calls with logger, enhanced startup/shutdown logging
+
+### Blockers/Notes
+- None - typecheck and all 386 tests pass
+- Debug logging is enabled via `--debug` CLI flag
+- All FUSE operations now have consistent error handling and logging patterns

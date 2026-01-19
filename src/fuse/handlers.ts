@@ -13,6 +13,7 @@ import { getLabels, getNodesByLabel, getRelationshipTypes, getRelationships, get
 import { parsePath, CONFIG_FILENAME, PROPERTIES_FILENAME, extractTargetFromRelPropertiesFilename } from '../core/path-parser.js';
 import type { Direction } from '../types/index.js';
 import { ConfigParser } from '../config/parser.js';
+import { Logger, createLogger } from '../core/logger.js';
 
 /**
  * Context for FUSE handlers containing shared resources.
@@ -26,6 +27,8 @@ export interface HandlerContext {
   cache: Cache;
   /** Enable debug logging */
   debug?: boolean;
+  /** Logger instance */
+  logger: Logger;
 }
 
 /**
@@ -37,13 +40,16 @@ export function createHandlerContext(
     config?: ConfigSchema;
     cache?: Cache;
     debug?: boolean;
+    logger?: Logger;
   } = {}
 ): HandlerContext {
+  const debug = options.debug ?? false;
   return {
     db,
     config: options.config ?? DEFAULT_CONFIG,
     cache: options.cache ?? new Cache(),
-    debug: options.debug ?? false,
+    debug,
+    logger: options.logger ?? createLogger({ enabled: debug, prefix: 'lpgfs:fuse' }),
   };
 }
 
@@ -70,36 +76,53 @@ export async function readdir(
   ctx: HandlerContext
 ): Promise<DirectoryEntry[]> {
   const pathContext = parsePath(path);
+  const timer = ctx.logger.time();
 
-  if (ctx.debug) {
-    console.log(`[lpgfs:fuse] readdir: ${path}`, pathContext);
-  }
+  ctx.logger.debug(`readdir: ${path}`, { type: pathContext.type });
 
-  switch (pathContext.type) {
-    case 'root':
-      return readdirRoot(ctx);
+  try {
+    let result: DirectoryEntry[];
 
-    case 'label':
-      return readdirLabel(pathContext.label!, ctx);
+    switch (pathContext.type) {
+      case 'root':
+        result = await readdirRoot(ctx);
+        break;
 
-    case 'node':
-      return readdirNode(pathContext.label!, pathContext.nodeName!, ctx);
+      case 'label':
+        result = await readdirLabel(pathContext.label!, ctx);
+        break;
 
-    case 'reltype':
-      return readdirReltype();
+      case 'node':
+        result = await readdirNode(pathContext.label!, pathContext.nodeName!, ctx);
+        break;
 
-    case 'direction':
-      return readdirDirection(
-        pathContext.label!,
-        pathContext.nodeName!,
-        pathContext.relType!,
-        pathContext.direction!,
-        ctx
-      );
+      case 'reltype':
+        result = readdirReltype();
+        break;
 
-    default:
-      // TODO: Implement other path types in subsequent tasks
-      throw new Error(`readdir not implemented for path type: ${pathContext.type}`);
+      case 'direction':
+        result = await readdirDirection(
+          pathContext.label!,
+          pathContext.nodeName!,
+          pathContext.relType!,
+          pathContext.direction!,
+          ctx
+        );
+        break;
+
+      default:
+        throw new LpgfsError(`readdir not implemented for path type: ${pathContext.type}`, POSIX_ERRORS.ENOENT);
+    }
+
+    timer.end(`readdir: ${path}`, { entries: result.length });
+    return result;
+  } catch (error) {
+    if (error instanceof LpgfsError) {
+      ctx.logger.debug(`readdir: ${path} -> error`, { code: error.code, message: error.message });
+      throw error;
+    }
+    ctx.logger.error(`readdir: ${path}`, error);
+    throw new LpgfsError(`readdir failed: ${(error as Error).message}`, POSIX_ERRORS.EIO);
   }
 }
 
@@ -375,55 +398,74 @@ export async function getattr(
   ctx: HandlerContext
 ): Promise<StatResult> {
   const pathContext = parsePath(path);
+  const timer = ctx.logger.time();
 
-  if (ctx.debug) {
-    console.log(`[lpgfs:fuse] getattr: ${path}`, pathContext);
-  }
+  ctx.logger.debug(`getattr: ${path}`, { type: pathContext.type });
 
-  const now = new Date();
+  try {
+    const now = new Date();
+    let result: StatResult;
 
-  switch (pathContext.type) {
-    case 'root':
-      return { type: 'directory', mtime: now, atime: now, ctime: now };
+    switch (pathContext.type) {
+      case 'root':
+        result = { type: 'directory', mtime: now, atime: now, ctime: now };
+        break;
 
-    case 'label':
-      return getattrLabel(pathContext.label!, ctx);
+      case 'label':
+        result = await getattrLabel(pathContext.label!, ctx);
+        break;
 
-    case 'node':
-      return getattrNode(pathContext.label!, pathContext.nodeName!, ctx);
+      case 'node':
+        result = await getattrNode(pathContext.label!, pathContext.nodeName!, ctx);
+        break;
 
-    case 'reltype':
-      return getattrReltype(
-        pathContext.label!,
-        pathContext.nodeName!,
-        pathContext.relType!,
-        ctx
-      );
+      case 'reltype':
+        result = await getattrReltype(
+          pathContext.label!,
+          pathContext.nodeName!,
+          pathContext.relType!,
+          ctx
+        );
+        break;
 
-    case 'direction':
-      return getattrDirection(
-        pathContext.label!,
-        pathContext.nodeName!,
-        pathContext.relType!,
-        pathContext.direction!,
-        ctx
-      );
+      case 'direction':
+        result = await getattrDirection(
+          pathContext.label!,
+          pathContext.nodeName!,
+          pathContext.relType!,
+          pathContext.direction!,
+          ctx
+        );
+        break;
 
-    case 'target':
-      return getattrTarget(
-        pathContext.label!,
-        pathContext.nodeName!,
-        pathContext.relType!,
-        pathContext.direction!,
-        pathContext.targetName!,
-        ctx
-      );
+      case 'target':
+        result = await getattrTarget(
+          pathContext.label!,
+          pathContext.nodeName!,
+          pathContext.relType!,
+          pathContext.direction!,
+          pathContext.targetName!,
+          ctx
+        );
+        break;
 
-    case 'properties':
-      return getattrProperties(pathContext, ctx);
+      case 'properties':
+        result = await getattrProperties(pathContext, ctx);
+        break;
 
-    default:
-      throw new LpgfsError(`Unknown path type: ${pathContext.type}`, POSIX_ERRORS.ENOENT);
+      default:
+        throw new LpgfsError(`Unknown path type: ${pathContext.type}`, POSIX_ERRORS.ENOENT);
+    }
+
+    timer.end(`getattr: ${path}`, { type: result.type });
+    return result;
+  } catch (error) {
+    if (error instanceof LpgfsError) {
+      ctx.logger.debug(`getattr: ${path} -> error`, { code: error.code, message: error.message });
+      throw error;
+    }
+    ctx.logger.error(`getattr: ${path}`, error);
+    throw new LpgfsError(`getattr failed: ${(error as Error).message}`, POSIX_ERRORS.EIO);
   }
 }
 
@@ -711,78 +753,90 @@ export async function readlink(
   ctx: HandlerContext
 ): Promise<string> {
   const pathContext = parsePath(path);
+  const timer = ctx.logger.time();
 
-  if (ctx.debug) {
-    console.log(`[lpgfs:fuse] readlink: ${path}`, pathContext);
-  }
+  ctx.logger.debug(`readlink: ${path}`, { type: pathContext.type });
 
-  // readlink only applies to target symlinks
-  if (pathContext.type !== 'target') {
-    throw new LpgfsError(`Not a symlink: ${path}`, POSIX_ERRORS.ENOENT);
-  }
-
-  // Validate required path components
-  if (
-    !pathContext.label ||
-    !pathContext.nodeName ||
-    !pathContext.relType ||
-    !pathContext.direction ||
-    !pathContext.targetName
-  ) {
-    throw new LpgfsError(`Invalid symlink path: ${path}`, POSIX_ERRORS.ENOENT);
-  }
-
-  // Get relationships to find target info
-  const relationships = await getRelationships(
-    ctx.db,
-    pathContext.label,
-    pathContext.nodeName,
-    pathContext.relType,
-    pathContext.direction,
-    ctx.config,
-    ctx.cache
-  );
-
-  if (relationships.length === 0) {
-    throw new LpgfsError(`No relationships found for symlink: ${path}`, POSIX_ERRORS.ENOENT);
-  }
-
-  // Find the target relationship using the same suffix logic as readdirDirection and getattrTarget
-  const targetNameCounts = new Map<string, number>();
-  let targetRel = null;
-
-  for (const rel of relationships) {
-    const baseName = rel.targetName;
-    const count = targetNameCounts.get(baseName) || 0;
-    targetNameCounts.set(baseName, count + 1);
-
-    const displayName = count === 0 ? baseName : `${baseName}_${count}`;
-    if (displayName === pathContext.targetName) {
-      targetRel = rel;
-      break;
+  try {
+    // readlink only applies to target symlinks
+    if (pathContext.type !== 'target') {
+      throw new LpgfsError(`Not a symlink: ${path}`, POSIX_ERRORS.ENOENT);
     }
-  }
 
-  if (!targetRel) {
-    throw new LpgfsError(`Target not found: ${pathContext.targetName}`, POSIX_ERRORS.ENOENT);
-  }
+    // Validate required path components
+    if (
+      !pathContext.label ||
+      !pathContext.nodeName ||
+      !pathContext.relType ||
+      !pathContext.direction ||
+      !pathContext.targetName
+    ) {
+      throw new LpgfsError(`Invalid symlink path: ${path}`, POSIX_ERRORS.ENOENT);
+    }
 
-  // Build relative path based on whether same or different label
-  // Symlink is at: /Label/node/RELTYPE/DIR/target
-  // We need to navigate from the DIR directory to the target node directory
+    // Get relationships to find target info
+    const relationships = await getRelationships(
+      ctx.db,
+      pathContext.label,
+      pathContext.nodeName,
+      pathContext.relType,
+      pathContext.direction,
+      ctx.config,
+      ctx.cache
+    );
 
-  const sourceLabel = pathContext.label;
-  const targetLabel = targetRel.targetLabel;
-  const targetName = targetRel.targetName;
+    if (relationships.length === 0) {
+      throw new LpgfsError(`No relationships found for symlink: ${path}`, POSIX_ERRORS.ENOENT);
+    }
 
-  if (sourceLabel === targetLabel) {
-    // Same label: go up 3 levels (to label dir) then to target
-    // From /Label/node/RELTYPE/DIR/ → ../../.. → /Label/, then targetName → /Label/targetName
-    return `../../../${targetName}`;
-  } else {
-    // Different label: go up 4 levels (to root) then to target label and name
-    // From /Label/node/RELTYPE/DIR/ → ../../../.. → /, then Label/targetName → /Label/targetName
-    return `../../../../${targetLabel}/${targetName}`;
+    // Find the target relationship using the same suffix logic as readdirDirection and getattrTarget
+    const targetNameCounts = new Map<string, number>();
+    let targetRel = null;
+
+    for (const rel of relationships) {
+      const baseName = rel.targetName;
+      const count = targetNameCounts.get(baseName) || 0;
+      targetNameCounts.set(baseName, count + 1);
+
+      const displayName = count === 0 ? baseName : `${baseName}_${count}`;
+      if (displayName === pathContext.targetName) {
+        targetRel = rel;
+        break;
+      }
+    }
+
+    if (!targetRel) {
+      throw new LpgfsError(`Target not found: ${pathContext.targetName}`, POSIX_ERRORS.ENOENT);
+    }
+
+    // Build relative path based on whether same or different label
+    // Symlink is at: /Label/node/RELTYPE/DIR/target
+    // We need to navigate from the DIR directory to the target node directory
+
+    const sourceLabel = pathContext.label;
+    const targetLabel = targetRel.targetLabel;
+    const targetName = targetRel.targetName;
+
+    let result: string;
+    if (sourceLabel === targetLabel) {
+      // Same label: go up 3 levels (to label dir) then to target
+      // From /Label/node/RELTYPE/DIR/ → ../../.. → /Label/, then targetName → /Label/targetName
+      result = `../../../${targetName}`;
+    } else {
+      // Different label: go up 4 levels (to root) then to target label and name
+      // From /Label/node/RELTYPE/DIR/ → ../../../.. → /, then Label/targetName → /Label/targetName
+      result = `../../../../${targetLabel}/${targetName}`;
+    }
+
+    timer.end(`readlink: ${path}`, { target: result });
+    return result;
+  } catch (error) {
+    if (error instanceof LpgfsError) {
+      ctx.logger.debug(`readlink: ${path} -> error`, { code: error.code, message: error.message });
+      throw error;
+    }
+    ctx.logger.error(`readlink: ${path}`, error);
+    throw new LpgfsError(`readlink failed: ${(error as Error).message}`, POSIX_ERRORS.EIO);
   }
 }
 
@@ -832,68 +886,77 @@ export async function read(
   length?: number
 ): Promise<ReadResult> {
   const pathContext = parsePath(path);
+  const timer = ctx.logger.time();
 
-  if (ctx.debug) {
-    console.log(`[lpgfs:fuse] read: ${path}`, { offset, length, pathContext });
-  }
+  ctx.logger.debug(`read: ${path}`, { offset, length, type: pathContext.type });
 
-  // Only property files can be read
-  if (pathContext.type !== 'properties') {
-    throw new LpgfsError(`Not a file: ${path}`, POSIX_ERRORS.ENOENT);
-  }
+  try {
+    // Only property files can be read
+    if (pathContext.type !== 'properties') {
+      throw new LpgfsError(`Not a file: ${path}`, POSIX_ERRORS.ENOENT);
+    }
 
-  let content: string;
+    let content: string;
 
-  // Config file (/.lpgfs.yaml)
-  if (pathContext.isConfigFile) {
-    content = getConfigContent(ctx);
-  }
-  // Node properties file (.properties.json)
-  else if (pathContext.isPropertiesFile && pathContext.label && pathContext.nodeName) {
-    content = await readNodeProperties(
-      pathContext.label,
-      pathContext.nodeName,
-      ctx
-    );
-  }
-  // Relationship properties file (.targetName.json)
-  else if (
-    pathContext.isRelPropertiesFile &&
-    pathContext.label &&
-    pathContext.nodeName &&
-    pathContext.relType &&
-    pathContext.direction &&
-    pathContext.targetName
-  ) {
-    content = await readRelationshipProperties(
-      pathContext.label,
-      pathContext.nodeName,
-      pathContext.relType,
-      pathContext.direction,
-      pathContext.targetName,
-      ctx
-    );
-  }
-  // Unknown file type
-  else {
-    throw new LpgfsError(`Unknown file type: ${path}`, POSIX_ERRORS.ENOENT);
-  }
+    // Config file (/.lpgfs.yaml)
+    if (pathContext.isConfigFile) {
+      content = getConfigContent(ctx);
+    }
+    // Node properties file (.properties.json)
+    else if (pathContext.isPropertiesFile && pathContext.label && pathContext.nodeName) {
+      content = await readNodeProperties(
+        pathContext.label,
+        pathContext.nodeName,
+        ctx
+      );
+    }
+    // Relationship properties file (.targetName.json)
+    else if (
+      pathContext.isRelPropertiesFile &&
+      pathContext.label &&
+      pathContext.nodeName &&
+      pathContext.relType &&
+      pathContext.direction &&
+      pathContext.targetName
+    ) {
+      content = await readRelationshipProperties(
+        pathContext.label,
+        pathContext.nodeName,
+        pathContext.relType,
+        pathContext.direction,
+        pathContext.targetName,
+        ctx
+      );
+    }
+    // Unknown file type
+    else {
+      throw new LpgfsError(`Unknown file type: ${path}`, POSIX_ERRORS.ENOENT);
+    }
 
-  // Calculate total size in bytes
-  const totalSize = Buffer.byteLength(content, 'utf8');
+    // Calculate total size in bytes
+    const totalSize = Buffer.byteLength(content, 'utf8');
 
-  // Handle offset and length for partial reads
-  if (offset > 0 || length !== undefined) {
-    const contentBuffer = Buffer.from(content, 'utf8');
-    const end = length !== undefined ? Math.min(offset + length, totalSize) : totalSize;
-    const sliced = contentBuffer.subarray(offset, end);
-    content = sliced.toString('utf8');
+    // Handle offset and length for partial reads
+    if (offset > 0 || length !== undefined) {
+      const contentBuffer = Buffer.from(content, 'utf8');
+      const end = length !== undefined ? Math.min(offset + length, totalSize) : totalSize;
+      const sliced = contentBuffer.subarray(offset, end);
+      content = sliced.toString('utf8');
+    }
+
+    timer.end(`read: ${path}`, { size: totalSize, returned: content.length });
+    return {
+      content,
+      size: totalSize,
+    };
+  } catch (error) {
+    if (error instanceof LpgfsError) {
+      ctx.logger.debug(`read: ${path} -> error`, { code: error.code, message: error.message });
+      throw error;
+    }
+    ctx.logger.error(`read: ${path}`, error);
+    throw new LpgfsError(`read failed: ${(error as Error).message}`, POSIX_ERRORS.EIO);
   }
-
-  return {
-    content,
-    size: totalSize,
-  };
 }
 
 /**

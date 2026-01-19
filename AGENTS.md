@@ -619,3 +619,98 @@ console.log(`Mounted at ${daemon.getMountpoint()}`);
 // Or unmount directly
 await unmount('/mnt/graph');
 ```
+
+## Logging Module
+
+### Logger Class (src/core/logger.ts)
+Centralized logging utility for consistent debug output.
+
+**Features:**
+- Log levels: `debug`, `info`, `warn`, `error`
+- Debug/info/warn messages gated by `enabled` flag
+- Error messages always logged (not gated)
+- Child loggers with sub-prefix support
+- Timer utility for measuring operation duration
+
+**Methods:**
+- `isEnabled()` - Check if logging is enabled
+- `setEnabled(bool)` - Enable/disable logging
+- `child(subPrefix)` - Create child logger with combined prefix
+- `debug(message, data?)` - Log debug message (gated)
+- `info(message, data?)` - Log info message (gated)
+- `warn(message, data?)` - Log warning message (gated)
+- `error(message, error?)` - Log error message (always logged)
+- `time()` - Start a timer, returns Timer object
+
+**Timer Methods:**
+- `end(message, data?)` - Log duration since timer started
+
+**Usage Example:**
+```typescript
+import { createLogger, Logger } from './core/logger.js';
+
+// Create logger
+const logger = createLogger({ enabled: true, prefix: 'lpgfs' });
+
+// Basic logging
+logger.info('Starting server');
+logger.debug('Config loaded', { path: '/config.yaml' });
+logger.warn('Connection slow');
+logger.error('Failed to connect', new Error('timeout'));
+
+// Child loggers
+const fuseLogger = logger.child('fuse');
+fuseLogger.debug('readdir /');
+// Output: [lpgfs:fuse] readdir /
+
+// Timing operations
+const timer = logger.time();
+// ... do work ...
+timer.end('Operation complete', { entries: 5 });
+// Output: [lpgfs] Operation complete {"entries":5} (12ms)
+```
+
+**Integration with HandlerContext:**
+The `HandlerContext` includes a logger that is automatically created by `createHandlerContext()`:
+```typescript
+const ctx = createHandlerContext(db, {
+  debug: true,  // Enables logging
+  // logger is auto-created with prefix 'lpgfs:fuse'
+});
+
+// Or provide custom logger
+const ctx = createHandlerContext(db, {
+  logger: customLogger,
+});
+```
+
+## Error Handling Patterns
+
+### FUSE Handler Error Pattern
+All FUSE handlers follow this error handling pattern:
+```typescript
+export async function readdir(path: string, ctx: HandlerContext): Promise<DirectoryEntry[]> {
+  const timer = ctx.logger.time();
+  ctx.logger.debug(`readdir: ${path}`, { type: pathContext.type });
+
+  try {
+    // ... implementation ...
+    timer.end(`readdir: ${path}`, { entries: result.length });
+    return result;
+  } catch (error) {
+    if (error instanceof LpgfsError) {
+      // Expected error - log and rethrow
+      ctx.logger.debug(`readdir: ${path} -> error`, { code: error.code, message: error.message });
+      throw error;
+    }
+    // Unexpected error - log, wrap in EIO, and throw
+    ctx.logger.error(`readdir: ${path}`, error);
+    throw new LpgfsError(`readdir failed: ${(error as Error).message}`, POSIX_ERRORS.EIO);
+  }
+}
+```
+
+### Error Codes
+- `POSIX_ERRORS.ENOENT` (-2): Path or entity not found
+- `POSIX_ERRORS.EIO` (-5): Database or I/O error
+- `POSIX_ERRORS.EROFS` (-30): Write operation on read-only filesystem

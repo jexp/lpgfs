@@ -21,6 +21,7 @@ import {
   read,
   type HandlerContext,
 } from '../fuse/handlers.js';
+import { Logger, createLogger } from './logger.js';
 
 // fuse-native types
 interface FuseStats {
@@ -174,10 +175,15 @@ export class Daemon {
   private cache: Cache | null = null;
   private handlerContext: HandlerContext | null = null;
   private signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = [];
+  private logger: Logger;
 
   constructor(options: DaemonOptions) {
     this.mountpoint = resolve(options.mountpoint);
     this.mountOptions = options.mountOptions;
+    this.logger = createLogger({
+      enabled: options.mountOptions.debug ?? false,
+      prefix: 'lpgfs',
+    });
   }
 
   /**
@@ -207,36 +213,42 @@ export class Daemon {
 
     try {
       // Load fuse-native
+      this.logger.info('Loading fuse-native module...');
       const FuseModule = loadFuse();
 
       // Check if FUSE is configured
+      this.logger.info('Checking FUSE configuration...');
       await this.checkFuseConfigured();
 
       // Load configuration
-      if (debug) {
-        console.log('[lpgfs] Loading configuration...');
-      }
+      this.logger.info('Loading configuration...');
       this.config = await this.loadConfig();
+      this.logger.debug('Configuration loaded', {
+        naming: this.config.naming?.default,
+        collision: this.config.collision?.strategy,
+      });
 
       // Connect to database
-      if (debug) {
-        console.log(`[lpgfs] Connecting to database at ${this.mountOptions.db}...`);
-      }
+      this.logger.info(`Connecting to database at ${this.mountOptions.db}...`);
       this.db = await connect({
         uri: this.mountOptions.db,
         username: this.mountOptions.user,
         password: this.mountOptions.password,
         debug,
       });
+      this.logger.info('Database connection established');
 
       // Create cache
       this.cache = new Cache({ debug });
+      this.logger.debug('Cache initialized');
 
-      // Create handler context
+      // Create handler context with its own logger
+      const fuseLogger = this.logger.child('fuse');
       this.handlerContext = createHandlerContext(this.db, {
         config: this.config,
         cache: this.cache,
         debug,
+        logger: fuseLogger,
       });
 
       // Create FUSE operations
@@ -255,6 +267,7 @@ export class Daemon {
       this.fuse = new FuseModule(this.mountpoint, ops, fuseOptions);
 
       // Mount filesystem
+      this.logger.info(`Mounting filesystem at ${this.mountpoint}...`);
       await new Promise<void>((resolve, reject) => {
         this.fuse!.mount((err) => {
           if (err) {
@@ -269,11 +282,9 @@ export class Daemon {
       this.registerSignalHandlers();
 
       this.state = 'running';
-
-      if (debug) {
-        console.log(`[lpgfs] Filesystem mounted at ${this.mountpoint}`);
-      }
+      this.logger.info(`Filesystem mounted successfully at ${this.mountpoint}`);
     } catch (error) {
+      this.logger.error('Failed to start daemon', error);
       this.state = 'stopped';
       await this.cleanup();
       throw error;
@@ -289,24 +300,19 @@ export class Daemon {
     }
 
     this.state = 'stopping';
-    const debug = this.mountOptions.debug ?? false;
-
-    if (debug) {
-      console.log('[lpgfs] Unmounting filesystem...');
-    }
+    this.logger.info('Stopping daemon...');
 
     // Unregister signal handlers
     this.unregisterSignalHandlers();
 
     // Unmount FUSE
     if (this.fuse) {
+      this.logger.info('Unmounting filesystem...');
       await new Promise<void>((resolve, reject) => {
         this.fuse!.unmount((err) => {
           if (err) {
             // Ignore unmount errors - may already be unmounted
-            if (debug) {
-              console.log(`[lpgfs] Unmount warning: ${err.message}`);
-            }
+            this.logger.warn(`Unmount warning: ${err.message}`);
           }
           resolve();
         });
@@ -315,10 +321,7 @@ export class Daemon {
 
     await this.cleanup();
     this.state = 'stopped';
-
-    if (debug) {
-      console.log('[lpgfs] Filesystem unmounted');
-    }
+    this.logger.info('Filesystem unmounted successfully');
   }
 
   /**
@@ -327,18 +330,21 @@ export class Daemon {
   private async cleanup(): Promise<void> {
     // Close database connection
     if (this.db) {
+      this.logger.debug('Closing database connection...');
       await this.db.close();
       this.db = null;
     }
 
     // Clear cache
     if (this.cache) {
+      this.logger.debug('Clearing cache...');
       this.cache.clear();
       this.cache = null;
     }
 
     this.handlerContext = null;
     this.fuse = null;
+    this.logger.debug('Cleanup complete');
   }
 
   /**
@@ -390,13 +396,14 @@ export class Daemon {
 
     for (const signal of signals) {
       const handler = () => {
+        // Always log signal reception (not gated by debug)
         console.log(`\n[lpgfs] Received ${signal}, shutting down...`);
         this.stop()
           .then(() => {
             process.exit(0);
           })
           .catch((err) => {
-            console.error(`[lpgfs] Error during shutdown: ${err.message}`);
+            this.logger.error(`Error during shutdown`, err);
             process.exit(1);
           });
       };
@@ -404,6 +411,7 @@ export class Daemon {
       process.on(signal, handler);
       this.signalHandlers.push({ signal, handler });
     }
+    this.logger.debug('Signal handlers registered', { signals });
   }
 
   /**
@@ -421,7 +429,7 @@ export class Daemon {
    */
   private createFuseOps(): FuseOps {
     const ctx = this.handlerContext!;
-    const debug = this.mountOptions.debug ?? false;
+    const logger = this.logger.child('fuse');
 
     // File mode constants
     const S_IFDIR = 0o040000; // Directory
@@ -439,9 +447,7 @@ export class Daemon {
     return {
       // Initialization
       init: (cb) => {
-        if (debug) {
-          console.log('[lpgfs:fuse] init');
-        }
+        logger.debug('FUSE initialized');
         cb(0);
       },
 
@@ -455,9 +461,8 @@ export class Daemon {
             if (err instanceof LpgfsError) {
               cb(err.code);
             } else {
-              if (debug) {
-                console.error(`[lpgfs:fuse] readdir error: ${err.message}`);
-              }
+              // Unexpected error - handlers should wrap all errors, but log just in case
+              logger.error(`readdir unexpected error: ${path}`, err);
               cb(POSIX_ERRORS.EIO);
             }
           });
@@ -499,9 +504,8 @@ export class Daemon {
             if (err instanceof LpgfsError) {
               cb(err.code);
             } else {
-              if (debug) {
-                console.error(`[lpgfs:fuse] getattr error: ${err.message}`);
-              }
+              // Unexpected error - handlers should wrap all errors, but log just in case
+              logger.error(`getattr unexpected error: ${path}`, err);
               cb(POSIX_ERRORS.EIO);
             }
           });
@@ -546,9 +550,8 @@ export class Daemon {
             if (err instanceof LpgfsError) {
               cb(err.code);
             } else {
-              if (debug) {
-                console.error(`[lpgfs:fuse] read error: ${err.message}`);
-              }
+              // Unexpected error - handlers should wrap all errors, but log just in case
+              logger.error(`read unexpected error: ${path}`, err);
               cb(POSIX_ERRORS.EIO);
             }
           });
@@ -564,9 +567,8 @@ export class Daemon {
             if (err instanceof LpgfsError) {
               cb(err.code);
             } else {
-              if (debug) {
-                console.error(`[lpgfs:fuse] readlink error: ${err.message}`);
-              }
+              // Unexpected error - handlers should wrap all errors, but log just in case
+              logger.error(`readlink unexpected error: ${path}`, err);
               cb(POSIX_ERRORS.EIO);
             }
           });
