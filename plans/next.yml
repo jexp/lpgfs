@@ -1,937 +1,256 @@
-# LPGFS Foundation Tasks
-# Auto-generated from plans/foundation.md
-
-id: "lpgfs-foundation"
-title: "LPGFS Foundation Implementation"
-description: "Implement read-only virtual filesystem presenting graph DB as native filesystem hierarchy"
----
-# Foundation & Setup
-
-id: "task-001"
-title: "Create project structure & dependencies"
+id: "segfault-investigation-001"
+title: "Fix segmentation fault on mount"
 description: |
-  Initialize project with core dependencies.
+  Segmentation fault occurs when mounting LPGFS. Root causes:
+  - fuse-native 2.2.6 compatibility issues with Node.js 22
+  - macFUSE initialization errors not handled properly
+  - Signal handlers accessing unmounted FUSE
+  - Missing graceful degradation for FUSE errors
+completed: false
+---
+
+id: "task-segfault-001"
+title: "Add comprehensive FUSE error handling in daemon"
+description: |
+  Daemon currently crashes with segfault when FUSE operations fail.
 
   **What to do:**
-  - Create package.json with fuse-native, neo4j-driver, yaml, lru-cache
-  - Set up TypeScript config
-  - Create src/ directory structure: core/, fuse/, db/, cache/, config/, types/
-  - Add dev dependencies (typescript, @types/node, etc)
+  - Wrap all fuse.mount() and FUSE operation callbacks with try-catch
+  - Add null checks before accessing this.fuse in signal handlers
+  - Check daemon state before calling stop() in signal handlers
+  - Add timeout to mount operation (fail after 5s instead of hanging)
+  - Log detailed errors from fuse-native callbacks
+  - Ensure cleanup() never throws exceptions
 
   **Files:**
-  - package.json (new)
-  - tsconfig.json (new)
-  - src/types/index.ts (new)
+  - src/core/daemon.ts (lines 272-280, 395-415)
 
   **Acceptance criteria:**
-  - npm install runs successfully
+  - No segfaults when FUSE fails to initialize
+  - Proper error messages instead of crashes
+  - Signal handlers don't cause crashes when FUSE not mounted
   - npm run tsc passes
-  - Basic folder structure exists
 
-  **Notes:**
-  - Use Node.js runtime
-  - Include @types for FUSE and Neo4j
-parentID: "lpgfs-foundation"
+  **Test:**
+  - Try mounting with wrong permissions
+  - Send SIGINT before mount completes
+  - Kill Neo4j during startup
+
+parentID: "segfault-investigation-001"
 dependsOn: []
-completed: true
+completed: false
 ---
-id: "task-002"
-title: "Define core TypeScript types"
+
+id: "task-segfault-002"
+title: "Add Node.js version check and warning"
 description: |
-  Define type system for LPGFS internals.
+  fuse-native may not be stable on Node.js 22. Add runtime version check.
 
   **What to do:**
-  - PathContext interface (type, label, nodeName, relType, direction, etc)
-  - ConfigSchema interface (naming, sanitization, collision)
-  - CacheEntry interface (key, value, expiry)
-  - DatabaseNode, DatabaseRelationship interfaces
+  - Check process.version in Daemon.start()
+  - Log warning if Node.js > 20 (fuse-native tested up to Node 20)
+  - Suggest downgrading to Node 18 or 20 for stability
+  - Don't block execution, just warn user
 
   **Files:**
-  - src/types/index.ts
+  - src/core/daemon.ts (add check before loadFuse())
 
   **Acceptance criteria:**
-  - All core types defined
-  - npm run typecheck passes
+  - Warning logged when running on Node 22+
+  - Message includes: "fuse-native may be unstable on Node.js 22, consider Node 18 or 20"
+  - Doesn't prevent mounting (just warns)
+  - npm run tsc passes
+
+parentID: "segfault-investigation-001"
+dependsOn: ["task-segfault-001"]
+completed: false
+---
+
+id: "task-segfault-003"
+title: "Add FUSE library validation checks"
+description: |
+  Validate macFUSE is properly installed before attempting mount.
+
+  **What to do:**
+  - Check for /Library/Filesystems/macfuse.fs on macOS
+  - Check for /dev/fuse on Linux
+  - Add validateFuseLibraries() method to Daemon class
+  - Call validation before creating FUSE instance
+  - Provide platform-specific installation instructions
+
+  **Files:**
+  - src/core/daemon.ts (add validateFuseLibraries() method)
+
+  **Acceptance criteria:**
+  - Clear error if macFUSE not installed: "macFUSE not found. Install from https://osxfuse.github.io/"
+  - Clear error on Linux if /dev/fuse missing
+  - Validation runs before fuse-native module is loaded
+  - npm run tsc passes
 
   **Notes:**
-  - Follow section 12.3 (Path Resolution) for PathContext
-  - Follow section 5.3 for ConfigSchema
-parentID: "lpgfs-foundation"
+  - macFUSE path: /Library/Filesystems/macfuse.fs
+  - Linux device: /dev/fuse
+
+parentID: "segfault-investigation-001"
+dependsOn: ["task-segfault-001"]
+completed: false
+---
+
+id: "task-segfault-004"
+title: "Add graceful FUSE operations error handling"
+description: |
+  FUSE operation callbacks may throw errors causing segfault.
+
+  **What to do:**
+  - Wrap all FUSE operation implementations in createFuseOps() with try-catch
+  - Specifically wrap: init, open, opendir, release, releasedir callbacks
+  - Log errors and return appropriate POSIX error codes instead of crashing
+  - Never throw synchronous errors from FUSE callbacks
+  - Always call callback exactly once (even on error)
+
+  **Files:**
+  - src/core/daemon.ts (lines 448-643, createFuseOps method)
+
+  **Acceptance criteria:**
+  - No uncaught exceptions from FUSE callbacks
+  - All callbacks return error codes instead of throwing
+  - Logger captures all FUSE operation errors
+  - npm run tsc passes
+
+  **Test:**
+  - Mount and immediately send invalid operations
+  - Unmount while operations in progress
+
+parentID: "segfault-investigation-001"
+dependsOn: ["task-segfault-001"]
+completed: false
+---
+
+id: "task-segfault-005"
+title: "Add process.on('uncaughtException') handler"
+description: |
+  Catch any remaining segfault-causing exceptions for debugging.
+
+  **What to do:**
+  - Add process.on('uncaughtException') handler in Daemon.start()
+  - Log full error stack trace with context (state, mountpoint, etc)
+  - Attempt graceful cleanup before exit
+  - Store handler reference for cleanup in stop()
+
+  **Files:**
+  - src/core/daemon.ts (register in start(), unregister in cleanup())
+
+  **Acceptance criteria:**
+  - Uncaught exceptions logged with full context
+  - Cleanup attempted before process exits
+  - Handler removed during normal stop() flow
+  - npm run tsc passes
+
+  **Notes:**
+  - Don't swallow exceptions - log and exit with code 1
+  - Include daemon state in error log
+
+parentID: "segfault-investigation-001"
+dependsOn: ["task-segfault-001"]
+completed: false
+---
+
+id: "task-segfault-006"
+title: "Add connection test before FUSE mount"
+description: |
+  Test database connectivity before initializing FUSE to catch errors early.
+
+  **What to do:**
+  - After connect() in Daemon.start(), execute simple test query
+  - Use: db.executeQuery('RETURN 1 as test') to verify connection
+  - Fail fast if database unreachable (before FUSE mount)
+  - Add clear error message about database connectivity
+
+  **Files:**
+  - src/core/daemon.ts (after line 240, after db connection)
+
+  **Acceptance criteria:**
+  - Connection test runs before FUSE initialization
+  - Clear error if Neo4j unreachable: "Cannot connect to database at <uri>"
+  - Suggests checking Neo4j is running and credentials are correct
+  - npm run tsc passes
+
+  **Test:**
+  - Try mounting with Neo4j stopped
+  - Try mounting with wrong credentials
+
+parentID: "segfault-investigation-001"
+dependsOn: ["task-segfault-001"]
+completed: false
+---
+
+id: "task-segfault-007"
+title: "Update README with troubleshooting section"
+description: |
+  Add troubleshooting guide for common segfault and mount errors.
+
+  **What to do:**
+  - Add "## Troubleshooting" section to README.md
+  - Document segfault causes and solutions:
+    - Node.js version (recommend 18 or 20)
+    - macFUSE installation issues
+    - Permissions errors
+    - Database connectivity
+  - Add "Common Errors" subsection with error messages and fixes
+  - Add link to GitHub issues for bug reports
+
+  **Files:**
+  - README.md (add after "## Limitations" section)
+
+  **Acceptance criteria:**
+  - Troubleshooting section includes all common errors
+  - Solutions include specific commands to run
+  - Node version recommendation clearly stated
+  - npm run tsc passes
+
+parentID: "segfault-investigation-001"
 dependsOn:
-  - "task-001"
-completed: true
+  - "task-segfault-001"
+  - "task-segfault-002"
+  - "task-segfault-003"
+  - "task-segfault-004"
+  - "task-segfault-005"
+  - "task-segfault-006"
+completed: false
 ---
-# Configuration System
 
-id: "task-003"
-title: "Implement .lpgfs.yaml parser"
+id: "task-segfault-008"
+title: "Add integration test for mount error scenarios"
 description: |
-  Parse and validate .lpgfs.yaml config file.
+  Test error handling for various mount failure scenarios.
 
   **What to do:**
-  - Create ConfigParser class
-  - Load YAML from file
-  - Validate naming, sanitization, collision sections
-  - Set defaults (naming.default = elementId, collision.strategy = suffix_elementId)
-  - Export parsed config object
+  - Create test/mount-errors.md manual test script
+  - Test scenarios:
+    1. Mount with Neo4j stopped
+    2. Mount with wrong credentials
+    3. Mount with invalid mountpoint
+    4. Mount without macFUSE installed
+    5. Send SIGINT during mount
+    6. Try mounting already mounted directory
+  - Document expected error messages for each
+  - Add verification checklist
 
   **Files:**
-  - src/config/parser.ts (new)
+  - test/mount-errors.md (new file)
 
   **Acceptance criteria:**
-  - Parses valid config files
-  - Returns typed ConfigSchema object
-  - Throws on invalid config
-  - npm run typecheck passes
+  - All 6 test scenarios documented
+  - Expected error messages listed
+  - Instructions clear and reproducible
+  - npm run tsc passes
 
-  **Notes:**
-  - Use 'yaml' package
-  - Follow section 5.3 for config structure
-parentID: "lpgfs-foundation"
+parentID: "segfault-investigation-001"
 dependsOn:
-  - "task-002"
-completed: true
----
-id: "task-004"
-title: "Implement filename sanitization"
-description: |
-  Sanitize property values for use as filenames.
-
-  **What to do:**
-  - Create sanitize() function
-  - Replace forbidden chars: / \ \0 : * ? " < > |
-  - Apply user-defined replacements from config
-  - Handle empty/null values
-
-  **Files:**
-  - src/config/sanitize.ts (new)
-
-  **Acceptance criteria:**
-  - Sanitizes all forbidden characters
-  - Respects config.sanitization.replace overrides
-  - Returns valid filesystem names
-  - Unit tests pass
-
-  **Notes:**
-  - Follow section 8.4 (Property Value Sanitization)
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-003"
-completed: true
----
-id: "task-005"
-title: "Implement collision handling"
-description: |
-  Handle filename collisions per config strategy.
-
-  **What to do:**
-  - Create handleCollision() function
-  - Implement suffix_elementId strategy (append _<elementId>)
-  - Implement fail strategy (throw error)
-  - Track used names per label/reltype
-
-  **Files:**
-  - src/config/collision.ts (new)
-
-  **Acceptance criteria:**
-  - suffix_elementId appends underscore + elementId
-  - fail throws descriptive error
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 5.3 (Collision Handling)
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-004"
-completed: true
----
-# Database Layer
-
-id: "task-006"
-title: "Implement Neo4j connection pool"
-description: |
-  Set up database connection with retry logic.
-
-  **What to do:**
-  - Create DatabaseConnection class
-  - Parse connection URI (neo4j://host:port)
-  - Initialize neo4j-driver with auth
-  - Implement connection pooling
-  - Add retry logic on failure
-  - Expose executeQuery() method
-
-  **Files:**
-  - src/db/connection.ts (new)
-
-  **Acceptance criteria:**
-  - Connects to Neo4j instance
-  - Retries on connection failure
-  - Returns ENOENT on unreachable DB
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 12.5 (use neo4j-driver)
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-002"
-completed: true
----
-id: "task-007"
-title: "Implement query: list all labels"
-description: |
-  Query to fetch all node labels in database.
-
-  **What to do:**
-  - Create getLabels() query
-  - Cypher: CALL db.labels() YIELD label RETURN label
-  - Return string[]
-
-  **Files:**
-  - src/db/queries.ts (new)
-
-  **Acceptance criteria:**
-  - Returns all labels
-  - Works with empty database
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 12.2 for query mapping
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-006"
-completed: true
----
-id: "task-008"
-title: "Implement query: list nodes by label"
-description: |
-  Query to fetch all nodes of a given label.
-
-  **What to do:**
-  - Create getNodesByLabel(label: string) query
-  - Use naming config to determine display name
-  - Return array: {name, elementId, properties}
-  - Handle naming strategy (elementId vs property)
-
-  **Files:**
-  - src/db/queries.ts
-
-  **Acceptance criteria:**
-  - Returns nodes with correct display names
-  - Respects naming config
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 5.3 for naming strategy
-  - Cypher example: MATCH (n:Person) RETURN n.username, elementId(n), properties(n)
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-007"
-  - "task-005"
-completed: true
----
-id: "task-009"
-title: "Implement query: get node properties"
-description: |
-  Query to fetch single node properties by name/elementId.
-
-  **What to do:**
-  - Create getNodeProperties(label, name) query
-  - Return {_elementId, ...properties}
-  - Support lookup by elementId or property name
-
-  **Files:**
-  - src/db/queries.ts
-
-  **Acceptance criteria:**
-  - Returns properties with _elementId
-  - Works for both naming strategies
-  - Returns null if not found
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 5.1 for properties structure
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-008"
-completed: true
----
-id: "task-010"
-title: "Implement query: list relationship types for node"
-description: |
-  Query to fetch distinct rel types connected to a node.
-
-  **What to do:**
-  - Create getRelationshipTypes(label, name) query
-  - Cypher: MATCH (n)-[r]-() WHERE ... RETURN DISTINCT type(r)
-  - Return string[]
-
-  **Files:**
-  - src/db/queries.ts
-
-  **Acceptance criteria:**
-  - Returns distinct relationship types
-  - Returns empty array if no relationships
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 12.2 for query mapping
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-009"
-completed: true
----
-id: "task-011"
-title: "Implement query: list relationships by type & direction"
-description: |
-  Query to fetch relationships of type & direction from a node.
-
-  **What to do:**
-  - Create getRelationships(label, name, relType, direction) query
-  - Return array: {targetName, targetLabel, relElementId, relProperties}
-  - Handle OUT (->), IN (<-) directions
-  - Apply naming strategy to target nodes
-
-  **Files:**
-  - src/db/queries.ts
-
-  **Acceptance criteria:**
-  - Returns correct relationships for OUT/IN
-  - Includes target node info
-  - Respects naming config for targets
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 5.2 for relationship structure
-  - OUT: (n)-[r:TYPE]->(m), IN: (n)<-[r:TYPE]-(m)
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-010"
-completed: true
----
-id: "task-012"
-title: "Implement query: get relationship properties"
-description: |
-  Query to fetch relationship properties by elementId.
-
-  **What to do:**
-  - Create getRelationshipProperties(relElementId) query
-  - Return {_elementId, ...properties}
-  - Return null if not found
-
-  **Files:**
-  - src/db/queries.ts
-
-  **Acceptance criteria:**
-  - Returns properties with _elementId
-  - Returns null if not found
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 5.2.4 for relationship properties
-  - Cypher: MATCH ()-[r]->() WHERE elementId(r)='...' RETURN properties(r), elementId(r)
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-011"
-completed: true
----
-# Caching Layer
-
-id: "task-013"
-title: "Implement in-memory cache with TTL"
-description: |
-  Cache layer to reduce DB queries.
-
-  **What to do:**
-  - Create Cache class wrapping lru-cache
-  - Support TTL per entry
-  - Implement get(key), set(key, value, ttl), clear()
-  - Prefix keys by type (labels, nodes:Label, props:elementId, rels:...)
-
-  **Files:**
-  - src/cache/index.ts (new)
-
-  **Acceptance criteria:**
-  - Entries expire after TTL
-  - get() returns null on miss
-  - clear() flushes all entries
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 12.4 for cache strategy
-  - Use lru-cache package
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-002"
-completed: true
----
-id: "task-014"
-title: "Integrate cache with database queries"
-description: |
-  Wrap all DB queries with caching.
-
-  **What to do:**
-  - Wrap getLabels() with cache (TTL 60s)
-  - Wrap getNodesByLabel() with cache (TTL 30s)
-  - Wrap getNodeProperties() with cache (TTL 10s)
-  - Wrap getRelationships() with cache (TTL 10s)
-  - Use cache keys from section 12.4
-
-  **Files:**
-  - src/db/queries.ts
-
-  **Acceptance criteria:**
-  - Queries check cache before DB
-  - Cache hits skip DB query
-  - TTLs match section 12.4
-  - npm run typecheck passes
-
-  **Notes:**
-  - Cache key examples: "labels", "nodes:Person", "props:4:abc:0"
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-013"
-  - "task-012"
-completed: true
----
-# Path Resolution
-
-id: "task-015"
-title: "Implement path parser"
-description: |
-  Parse filesystem paths to PathContext.
-
-  **What to do:**
-  - Create parsePath(path) function
-  - Identify path type: root, label, node, reltype, direction, target, properties
-  - Extract label, nodeName, relType, direction, targetName
-  - Detect .properties.json, .target.json files
-  - Return PathContext object
-
-  **Files:**
-  - src/core/path-parser.ts (new)
-
-  **Acceptance criteria:**
-  - Correctly identifies all path types from section 12.3
-  - Returns typed PathContext
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 12.3 examples
-  - /Person/alice/KNOWS/OUT/.james.json → {type: 'properties', isRelPropertiesFile: true, ...}
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-002"
-completed: true
----
-# FUSE Implementation
-
-id: "task-016"
-title: "Implement FUSE readdir() for root"
-description: |
-  List all labels at root.
-
-  **What to do:**
-  - Implement readdir(/) → getLabels()
-  - Return label directories
-  - Add .lpgfs.yaml to listing
-
-  **Files:**
-  - src/fuse/handlers.ts (new)
-
-  **Acceptance criteria:**
-  - ls / shows all labels
-  - .lpgfs.yaml appears in listing
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 12.2 for FUSE mapping
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-015"
-  - "task-014"
-completed: true
----
-id: "task-017"
-title: "Implement FUSE readdir() for label directory"
-description: |
-  List all nodes of a label.
-
-  **What to do:**
-  - Implement readdir(/Label/) → getNodesByLabel(label)
-  - Return node directories
-  - Apply naming + collision handling
-
-  **Files:**
-  - src/fuse/handlers.ts
-
-  **Acceptance criteria:**
-  - ls /Person/ shows all Person nodes
-  - Names follow config naming strategy
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 12.2 for query mapping
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-016"
-completed: true
----
-id: "task-018"
-title: "Implement FUSE readdir() for node directory"
-description: |
-  List contents of node: .properties.json + rel type dirs.
-
-  **What to do:**
-  - Implement readdir(/Label/node/) → .properties.json + getRelationshipTypes()
-  - Return .properties.json file + rel type directories
-
-  **Files:**
-  - src/fuse/handlers.ts
-
-  **Acceptance criteria:**
-  - ls /Person/alice/ shows .properties.json + KNOWS, WORKS_AT, etc
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 4.1 for structure
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-017"
-completed: true
----
-id: "task-019"
-title: "Implement FUSE readdir() for reltype directory"
-description: |
-  List OUT/ and IN/ subdirectories.
-
-  **What to do:**
-  - Implement readdir(/Label/node/RELTYPE/) → ["OUT", "IN"]
-  - Always return both directories
-
-  **Files:**
-  - src/fuse/handlers.ts
-
-  **Acceptance criteria:**
-  - ls /Person/alice/KNOWS/ shows OUT and IN
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 5.2.2 for direction structure
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-018"
-completed: true
----
-id: "task-020"
-title: "Implement FUSE readdir() for direction directory"
-description: |
-  List target symlinks + .target.json files.
-
-  **What to do:**
-  - Implement readdir(/Label/node/RELTYPE/OUT/) → getRelationships()
-  - Return symlink names + .name.json files
-  - Handle multiple rels to same target (suffix _1, _2)
-
-  **Files:**
-  - src/fuse/handlers.ts
-
-  **Acceptance criteria:**
-  - ls /Person/alice/KNOWS/OUT/ shows james, .james.json
-  - Handles multiple rels (section 8.1)
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 5.2.3 for symlinks
-  - Follow section 8.1 for multiple relationships
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-019"
-completed: true
----
-id: "task-021"
-title: "Implement FUSE getattr()"
-description: |
-  Return file/dir/symlink attributes.
-
-  **What to do:**
-  - Implement getattr(path) → stat info
-  - Return dir for labels, nodes, reltypes, directions
-  - Return file for .properties.json, .target.json
-  - Return symlink for targets in OUT/IN
-  - Return ENOENT for invalid paths
-
-  **Files:**
-  - src/fuse/handlers.ts
-
-  **Acceptance criteria:**
-  - stat /Person → directory
-  - stat /Person/alice/.properties.json → file
-  - stat /Person/alice/KNOWS/OUT/james → symlink
-  - npm run typecheck passes
-
-  **Notes:**
-  - Use PathContext to determine type
-  - Follow section 12.8 for error codes
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-020"
-completed: true
----
-id: "task-022"
-title: "Implement FUSE readlink()"
-description: |
-  Resolve symlink targets to relative paths.
-
-  **What to do:**
-  - Implement readlink(path) → relative path to target node
-  - Calculate relative path from symlink to target
-  - Handle cross-label links (Person → Company)
-
-  **Files:**
-  - src/fuse/handlers.ts
-
-  **Acceptance criteria:**
-  - readlink /Person/alice/KNOWS/OUT/james → ../../../james
-  - readlink /Person/alice/WORKS_AT/OUT/acme → ../../../Company/acme
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 5.2.3 for symlink structure
-  - Follow section 7 for cross-label relationships
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-021"
-completed: true
----
-id: "task-023"
-title: "Implement FUSE read() for node properties"
-description: |
-  Read .properties.json files.
-
-  **What to do:**
-  - Implement read(path) for .properties.json
-  - Fetch node properties via getNodeProperties()
-  - Return JSON: {_elementId, ...properties}
-  - Handle offset/length for partial reads
-
-  **Files:**
-  - src/fuse/handlers.ts
-
-  **Acceptance criteria:**
-  - cat /Person/alice/.properties.json returns valid JSON
-  - Includes _elementId field
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 5.1 for properties format
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-022"
-completed: true
----
-id: "task-024"
-title: "Implement FUSE read() for relationship properties"
-description: |
-  Read .target.json files (rel properties).
-
-  **What to do:**
-  - Implement read(path) for .target.json
-  - For OUT side: fetch rel properties via getRelationshipProperties()
-  - For IN side: return {_ref: relElementId}
-  - Handle offset/length for partial reads
-
-  **Files:**
-  - src/fuse/handlers.ts
-
-  **Acceptance criteria:**
-  - cat /Person/alice/KNOWS/OUT/.james.json returns properties
-  - cat /Person/james/KNOWS/IN/.alice.json returns {_ref: "..."}
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 5.2.4 for canonical ownership
-  - OUT side has full properties, IN side has _ref
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-023"
-completed: true
----
-id: "task-025"
-title: "Implement FUSE read() for .lpgfs.yaml"
-description: |
-  Allow reading config file from mounted filesystem.
-
-  **What to do:**
-  - Implement read() for /.lpgfs.yaml
-  - Return parsed config as YAML string
-  - Handle offset/length for partial reads
-
-  **Files:**
-  - src/fuse/handlers.ts
-
-  **Acceptance criteria:**
-  - cat /.lpgfs.yaml returns config file
-  - npm run typecheck passes
-
-  **Notes:**
-  - Config is read-only
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-024"
-completed: true
----
-id: "task-026"
-title: "Implement FUSE write operations → EROFS"
-description: |
-  Return read-only error for all write ops.
-
-  **What to do:**
-  - Implement write(), mkdir(), unlink(), rmdir(), etc → return EROFS
-  - Add error message: "LPGFS is read-only"
-
-  **Files:**
-  - src/fuse/handlers.ts
-
-  **Acceptance criteria:**
-  - All write operations return EROFS
-  - echo "test" > /Person/alice/.properties.json fails with EROFS
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 12.8 for error codes
-  - Current version is read-only per section 2.3
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-025"
-completed: true
----
-# CLI & Mount
-
-id: "task-027"
-title: "Implement CLI argument parsing"
-description: |
-  Parse mount command arguments.
-
-  **What to do:**
-  - Create CLI parser for lpgfs mount <mountpoint> [options]
-  - Support flags: --db, --config, --cache-ttl, --allow-other, --debug, --foreground, --user, --password
-  - Set defaults per section 12.7
-  - Validate required args
-
-  **Files:**
-  - src/cli/index.ts (new)
-
-  **Acceptance criteria:**
-  - Parses all flags correctly
-  - Shows help on --help
-  - Validates mountpoint exists
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 12.7 for mount options
-  - Can use commander or yargs
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-002"
-completed: true
----
-id: "task-028"
-title: "Implement FUSE mount/unmount"
-description: |
-  Mount filesystem using fuse-native.
-
-  **What to do:**
-  - Create Daemon class
-  - Initialize FUSE with handlers
-  - Mount at specified path
-  - Handle SIGTERM/SIGINT for clean unmount
-  - Implement unmount command
-
-  **Files:**
-  - src/core/daemon.ts (new)
-  - src/cli/index.ts
-
-  **Acceptance criteria:**
-  - lpgfs mount ./mnt successfully mounts
-  - Ctrl+C cleanly unmounts
-  - lpgfs unmount ./mnt works
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 12.6 for daemon lifecycle
-  - Use fuse-native package
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-027"
-  - "task-026"
-completed: true
----
-id: "task-029"
-title: "Implement error handling & logging"
-description: |
-  Add error handling and debug logging.
-
-  **What to do:**
-  - Wrap all FUSE ops in try/catch
-  - Map exceptions to POSIX error codes (ENOENT, EIO, EROFS)
-  - Add debug logging (gated by --debug flag)
-  - Log DB connection failures with retry attempts
-
-  **Files:**
-  - src/fuse/handlers.ts
-  - src/db/connection.ts
-
-  **Acceptance criteria:**
-  - Invalid paths return ENOENT
-  - DB timeouts return EIO
-  - --debug shows FUSE operation logs
-  - npm run typecheck passes
-
-  **Notes:**
-  - Follow section 12.8 for error codes
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-028"
-completed: true
----
-# Integration & Testing
-
-id: "task-030"
-title: "Create sample Neo4j dataset"
-description: |
-  Seed database with test data.
-
-  **What to do:**
-  - Create Cypher script to seed test data
-  - Add Person nodes: alice, bob, james, carol
-  - Add Company node: acme
-  - Add KNOWS relationships (OUT/IN)
-  - Add WORKS_AT relationships (cross-label)
-  - Include relationship properties
-
-  **Files:**
-  - test/seed.cypher (new)
-
-  **Acceptance criteria:**
-  - Script runs against Neo4j
-  - Creates nodes + relationships from Appendix A
-  - Includes _elementId in all entities
-
-  **Notes:**
-  - Follow Appendix A for structure
-parentID: "lpgfs-foundation"
-dependsOn: []
-completed: true
----
-id: "task-031"
-title: "Manual integration test: mount & traverse"
-description: |
-  Test mounted filesystem with Unix tools.
-
-  **What to do:**
-  - Mount filesystem with test DB
-  - Run: ls, cat, readlink, find, grep, tree
-  - Verify structure matches Appendix A
-  - Test all examples from section 6
-
-  **Files:**
-  - test/manual.md (new) - test script
-
-  **Acceptance criteria:**
-  - ls /Person/ shows nodes
-  - cat /Person/alice/.properties.json shows properties
-  - readlink follows symlinks correctly
-  - tree matches expected structure
-  - All section 6 examples work
-
-  **Notes:**
-  - Follow section 6 for traversal examples
-  - Document any failures
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-029"
-  - "task-030"
-completed: true
----
-id: "task-032"
-title: "Manual test: config naming strategies"
-description: |
-  Test elementId vs property naming.
-
-  **What to do:**
-  - Test with naming.default: elementId
-  - Test with naming.default: property
-  - Test per-label overrides
-  - Test collision handling (suffix_elementId, fail)
-
-  **Files:**
-  - test/configs/ (new) - test configs
-
-  **Acceptance criteria:**
-  - elementId strategy shows stable IDs
-  - property strategy shows human names
-  - Collisions handled per strategy
-  - All configs typecheck
-
-  **Notes:**
-  - Follow section 5.3 for naming config
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-031"
-completed: true
----
-id: "task-033"
-title: "Manual test: edge cases"
-description: |
-  Test edge cases from section 8.
-
-  **What to do:**
-  - Test multiple rels of same type (section 8.1)
-  - Test self-referential rels (section 8.2)
-  - Test nodes with no rels (section 8.3)
-  - Test special chars in properties (section 8.4)
-
-  **Files:**
-  - test/edge-cases.cypher (new)
-
-  **Acceptance criteria:**
-  - Multiple rels show suffix (_1, _2)
-  - Self-refs work (alice → alice)
-  - Nodes with no rels show only .properties.json
-  - Special chars sanitized per config
-
-  **Notes:**
-  - Follow section 8 for edge cases
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-032"
-completed: true
----
-id: "task-034"
-title: "Write README with quickstart"
-description: |
-  Document installation & usage.
-
-  **What to do:**
-  - Installation instructions
-  - Quickstart with example mount command
-  - Config file documentation
-  - Traversal examples
-  - Limitations (read-only)
-
-  **Files:**
-  - README.md (new)
-
-  **Acceptance criteria:**
-  - User can follow README to mount filesystem
-  - Examples work as documented
-  - Markdown renders correctly
-
-  **Notes:**
-  - Keep concise, reference PRD for details
-  - Include section 12.7 mount options
-parentID: "lpgfs-foundation"
-dependsOn:
-  - "task-033"
-completed: true
----
+  - "task-segfault-001"
+  - "task-segfault-002"
+  - "task-segfault-003"
+  - "task-segfault-004"
+  - "task-segfault-005"
+  - "task-segfault-006"
+completed: false
