@@ -58,11 +58,13 @@ After completed, update task list file by updating `completed: true` on that tas
 ## UPDATE LEARNINGS
 Update `AGENTS.md` with any learnings and patterns that would be useful for future agents. This file is not for documentation, just learnings and caveats for future programmers. Be terse and don't use for documentation, because it will get stale.
 
-# COMMIT
+# FINISH
 
-Make a git commit with a clear message.
+## GIT COMMIT
 
-# THE ISSUE
+You must make a git commit with a clear message.
+
+## PRINT IN TERMINAL
 
 If the task is complete, print "Task #<nr> complete"
 
@@ -71,3 +73,4 @@ If the task is complete, print "Task #<nr> complete"
 - ONLY WORK ON A SINGLE TASK. THEN STOP.
 - If there are no tasks left with `completed: false`, exit with `<promise>COMPLETE</promise>`
 - Add unit tests where it makes sense.
+- Always commit to git on completion.
