@@ -1,0 +1,8 @@
+node_modules
+dist
+*.log
+.git
+.DS_Store
+graph-mount
+fuse-test.*
+.lpgfs.yaml

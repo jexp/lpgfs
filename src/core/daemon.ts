@@ -5,15 +5,15 @@
  * Wraps fuse-native to provide a clean interface for the CLI.
  */
 
-import { execSync } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { resolve } from 'node:path';
-import type { ConfigSchema, MountOptions } from '../types/index.js';
-import { DEFAULT_CONFIG, LpgfsError, POSIX_ERRORS } from '../types/index.js';
-import { DatabaseConnection, connect } from '../db/connection.js';
-import { Cache } from '../cache/index.js';
-import { ConfigParser } from '../config/parser.js';
+import { execSync } from "node:child_process";
+import { existsSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
+import { resolve } from "node:path";
+import type { ConfigSchema, MountOptions } from "../types/index.js";
+import { DEFAULT_CONFIG, LpgfsError, POSIX_ERRORS } from "../types/index.js";
+import { DatabaseConnection, connect } from "../db/connection.js";
+import { Cache } from "../cache/index.js";
+import { ConfigParser } from "../config/parser.js";
 import {
   createHandlerContext,
   readdir,
@@ -21,8 +21,8 @@ import {
   readlink,
   read,
   type HandlerContext,
-} from '../fuse/handlers.js';
-import { Logger, createLogger } from './logger.js';
+} from "../fuse/handlers.js";
+import { Logger, createLogger } from "./logger.js";
 
 // fuse-native types
 interface FuseStats {
@@ -38,10 +38,24 @@ interface FuseStats {
 
 interface FuseOps {
   init?: (cb: (code: number) => void) => void;
-  readdir?: (path: string, cb: (code: number, entries?: string[]) => void) => void;
-  getattr?: (path: string, cb: (code: number, stats?: FuseStats) => void) => void;
-  open?: (path: string, flags: number, cb: (code: number, fd?: number) => void) => void;
-  opendir?: (path: string, flags: number, cb: (code: number, fd?: number) => void) => void;
+  readdir?: (
+    path: string,
+    cb: (code: number, entries?: string[]) => void,
+  ) => void;
+  getattr?: (
+    path: string,
+    cb: (code: number, stats?: FuseStats) => void,
+  ) => void;
+  open?: (
+    path: string,
+    flags: number,
+    cb: (code: number, fd?: number) => void,
+  ) => void;
+  opendir?: (
+    path: string,
+    flags: number,
+    cb: (code: number, fd?: number) => void,
+  ) => void;
   release?: (path: string, fd: number, cb: (code: number) => void) => void;
   releasedir?: (path: string, fd: number, cb: (code: number) => void) => void;
   read?: (
@@ -50,9 +64,12 @@ interface FuseOps {
     buffer: Buffer,
     length: number,
     position: number,
-    cb: (bytesRead: number) => void
+    cb: (bytesRead: number) => void,
   ) => void;
-  readlink?: (path: string, cb: (code: number, target?: string) => void) => void;
+  readlink?: (
+    path: string,
+    cb: (code: number, target?: string) => void,
+  ) => void;
   // Write operations - all return EROFS
   write?: (
     path: string,
@@ -60,11 +77,20 @@ interface FuseOps {
     buffer: Buffer,
     length: number,
     position: number,
-    cb: (code: number) => void
+    cb: (code: number) => void,
   ) => void;
-  create?: (path: string, mode: number, cb: (code: number, fd?: number) => void) => void;
+  create?: (
+    path: string,
+    mode: number,
+    cb: (code: number, fd?: number) => void,
+  ) => void;
   truncate?: (path: string, size: number, cb: (code: number) => void) => void;
-  ftruncate?: (path: string, fd: number, size: number, cb: (code: number) => void) => void;
+  ftruncate?: (
+    path: string,
+    fd: number,
+    size: number,
+    cb: (code: number) => void,
+  ) => void;
   unlink?: (path: string, cb: (code: number) => void) => void;
   mkdir?: (path: string, mode: number, cb: (code: number) => void) => void;
   rmdir?: (path: string, cb: (code: number) => void) => void;
@@ -72,23 +98,37 @@ interface FuseOps {
   symlink?: (target: string, path: string, cb: (code: number) => void) => void;
   link?: (src: string, dest: string, cb: (code: number) => void) => void;
   chmod?: (path: string, mode: number, cb: (code: number) => void) => void;
-  chown?: (path: string, uid: number, gid: number, cb: (code: number) => void) => void;
+  chown?: (
+    path: string,
+    uid: number,
+    gid: number,
+    cb: (code: number) => void,
+  ) => void;
   utimens?: (
     path: string,
     atime: number,
     mtime: number,
-    cb: (code: number) => void
+    cb: (code: number) => void,
   ) => void;
-  mknod?: (path: string, mode: number, dev: number, cb: (code: number) => void) => void;
+  mknod?: (
+    path: string,
+    mode: number,
+    dev: number,
+    cb: (code: number) => void,
+  ) => void;
   setxattr?: (
     path: string,
     name: string,
     value: Buffer,
     position: number,
     flags: number,
-    cb: (code: number) => void
+    cb: (code: number) => void,
   ) => void;
-  removexattr?: (path: string, name: string, cb: (code: number) => void) => void;
+  removexattr?: (
+    path: string,
+    name: string,
+    cb: (code: number) => void,
+  ) => void;
 }
 
 interface FuseOptions {
@@ -128,15 +168,15 @@ function loadFuse(): FuseConstructor {
   try {
     // Create require function for ES module context
     const require = createRequire(import.meta.url);
-    Fuse = require('fuse-native') as FuseConstructor;
+    Fuse = require("fuse-native") as FuseConstructor;
     return Fuse;
   } catch {
     throw new Error(
-      'fuse-native is not installed. ' +
-        'Please install it with: npm install fuse-native\n' +
-        'You may also need to install FUSE libraries:\n' +
-        '  - Linux: sudo apt install libfuse-dev\n' +
-        '  - macOS: Install macFUSE from https://osxfuse.github.io/'
+      "fuse-native is not installed. " +
+        "Please install it with: npm install fuse-native\n" +
+        "You may also need to install FUSE libraries:\n" +
+        "  - Linux: sudo apt install libfuse-dev\n" +
+        "  - macOS: Install macFUSE from https://osxfuse.github.io/",
     );
   }
 }
@@ -144,7 +184,7 @@ function loadFuse(): FuseConstructor {
 /**
  * Daemon state.
  */
-export type DaemonState = 'stopped' | 'starting' | 'running' | 'stopping';
+export type DaemonState = "stopped" | "starting" | "running" | "stopping";
 
 /**
  * Daemon configuration options.
@@ -167,7 +207,7 @@ export interface DaemonOptions {
  * - Handles signals for clean unmount
  */
 export class Daemon {
-  private state: DaemonState = 'stopped';
+  private state: DaemonState = "stopped";
   private mountpoint: string;
   private mountOptions: MountOptions;
   private db: DatabaseConnection | null = null;
@@ -175,7 +215,8 @@ export class Daemon {
   private config: ConfigSchema = DEFAULT_CONFIG;
   private cache: Cache | null = null;
   private handlerContext: HandlerContext | null = null;
-  private signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] = [];
+  private signalHandlers: { signal: NodeJS.Signals; handler: () => void }[] =
+    [];
   private uncaughtExceptionHandler: ((error: Error) => void) | null = null;
   private logger: Logger;
 
@@ -184,7 +225,7 @@ export class Daemon {
     this.mountOptions = options.mountOptions;
     this.logger = createLogger({
       enabled: options.mountOptions.debug ?? false,
-      prefix: 'lpgfs',
+      prefix: "lpgfs",
     });
   }
 
@@ -207,11 +248,11 @@ export class Daemon {
    */
   private checkNodeVersion(): void {
     const version = process.version;
-    const majorVersion = parseInt(version.slice(1).split('.')[0] ?? '0', 10);
+    const majorVersion = parseInt(version.slice(1).split(".")[0] ?? "0", 10);
 
     if (majorVersion > 20) {
       this.logger.warn(
-        `Running on Node.js ${version}. fuse-native may be unstable on Node.js 22+, consider Node 18 or 20 for stability.`
+        `Running on Node.js ${version}. fuse-native may be unstable on Node.js 22+, consider Node 18 or 20 for stability.`,
       );
     }
   }
@@ -223,23 +264,23 @@ export class Daemon {
   private validateFuseLibraries(): void {
     const platform = process.platform;
 
-    if (platform === 'darwin') {
+    if (platform === "darwin") {
       // macOS - check for macFUSE installation
-      if (!existsSync('/Library/Filesystems/macfuse.fs')) {
+      if (!existsSync("/Library/Filesystems/macfuse.fs")) {
         throw new Error(
-          'macFUSE not found. Install from https://osxfuse.github.io/\n' +
-            'After installation, restart your terminal and try again.'
+          "macFUSE not found. Install from https://osxfuse.github.io/\n" +
+            "After installation, restart your terminal and try again.",
         );
       }
-    } else if (platform === 'linux') {
+    } else if (platform === "linux") {
       // Linux - check for /dev/fuse device
-      if (!existsSync('/dev/fuse')) {
+      if (!existsSync("/dev/fuse")) {
         throw new Error(
-          'FUSE device not found. Install FUSE libraries:\n' +
-            '  Ubuntu/Debian: sudo apt install fuse libfuse-dev\n' +
-            '  Fedora/RHEL: sudo dnf install fuse fuse-devel\n' +
-            '  Arch: sudo pacman -S fuse2\n' +
-            'Then load the FUSE kernel module: sudo modprobe fuse'
+          "FUSE device not found. Install FUSE libraries:\n" +
+            "  Ubuntu/Debian: sudo apt install fuse libfuse-dev\n" +
+            "  Fedora/RHEL: sudo dnf install fuse fuse-devel\n" +
+            "  Arch: sudo pacman -S fuse2\n" +
+            "Then load the FUSE kernel module: sudo modprobe fuse",
         );
       }
     }
@@ -250,11 +291,11 @@ export class Daemon {
    * Start the daemon and mount the filesystem.
    */
   async start(): Promise<void> {
-    if (this.state !== 'stopped') {
+    if (this.state !== "stopped") {
       throw new Error(`Cannot start daemon: current state is ${this.state}`);
     }
 
-    this.state = 'starting';
+    this.state = "starting";
     const debug = this.mountOptions.debug ?? false;
 
     try {
@@ -262,21 +303,21 @@ export class Daemon {
       this.checkNodeVersion();
 
       // Validate FUSE libraries are installed
-      this.logger.info('Validating FUSE libraries...');
+      this.logger.info("Validating FUSE libraries...");
       this.validateFuseLibraries();
 
       // Load fuse-native
-      this.logger.info('Loading fuse-native module...');
+      this.logger.info("Loading fuse-native module...");
       const FuseModule = loadFuse();
 
       // Check if FUSE is configured
-      this.logger.info('Checking FUSE configuration...');
+      this.logger.info("Checking FUSE configuration...");
       await this.checkFuseConfigured();
 
       // Load configuration
-      this.logger.info('Loading configuration...');
+      this.logger.info("Loading configuration...");
       this.config = await this.loadConfig();
-      this.logger.debug('Configuration loaded', {
+      this.logger.debug("Configuration loaded", {
         naming: this.config.naming?.default,
         collision: this.config.collision?.strategy,
       });
@@ -289,31 +330,31 @@ export class Daemon {
         password: this.mountOptions.password,
         debug,
       });
-      this.logger.info('Database connection established');
+      this.logger.info("Database connection established");
 
       // Test database connectivity
-      this.logger.info('Testing database connectivity...');
+      this.logger.info("Testing database connectivity...");
       try {
-        await this.db.executeQuery('RETURN 1 as test');
-        this.logger.debug('Database connectivity test passed');
+        await this.db.executeQuery("RETURN 1 as test");
+        this.logger.debug("Database connectivity test passed");
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(
           `Cannot connect to database at ${this.mountOptions.db}\n` +
             `Error: ${message}\n` +
-            'Please check that:\n' +
-            '  - Neo4j is running and accessible\n' +
-            '  - The connection URI is correct\n' +
-            '  - Username and password are correct'
+            "Please check that:\n" +
+            "  - Neo4j is running and accessible\n" +
+            "  - The connection URI is correct\n" +
+            "  - Username and password are correct",
         );
       }
 
       // Create cache
       this.cache = new Cache({ debug });
-      this.logger.debug('Cache initialized');
+      this.logger.debug("Cache initialized");
 
       // Create handler context with its own logger
-      const fuseLogger = this.logger.child('fuse');
+      const fuseLogger = this.logger.child("fuse");
       this.handlerContext = createHandlerContext(this.db, {
         config: this.config,
         cache: this.cache,
@@ -338,23 +379,31 @@ export class Daemon {
 
       // Mount filesystem
       this.logger.info(`Mounting filesystem at ${this.mountpoint}...`);
+      this.logger.debug(
+        `About to call fuse.mount() - if segfault occurs here, it's a fuse-native binary issue`,
+      );
+
       await new Promise<void>((resolve, reject) => {
         // Add timeout to prevent hanging indefinitely
         const timeout = setTimeout(() => {
-          reject(new Error('Mount operation timed out after 5 seconds'));
+          reject(new Error("Mount operation timed out after 5 seconds"));
         }, 5000);
 
         try {
+          this.logger.debug(`Calling fuse.mount()...`);
           this.fuse!.mount((err) => {
             clearTimeout(timeout);
+            this.logger.debug(`fuse.mount() callback invoked`);
             if (err) {
               reject(new Error(`Failed to mount filesystem: ${err.message}`));
             } else {
               resolve();
             }
           });
+          this.logger.debug(`fuse.mount() called (waiting for callback)...`);
         } catch (err) {
           clearTimeout(timeout);
+          this.logger.error(`Synchronous error from fuse.mount()`, err);
           reject(err);
         }
       });
@@ -365,11 +414,11 @@ export class Daemon {
       // Register uncaught exception handler
       this.registerUncaughtExceptionHandler();
 
-      this.state = 'running';
+      this.state = "running";
       this.logger.info(`Filesystem mounted successfully at ${this.mountpoint}`);
     } catch (error) {
-      this.logger.error('Failed to start daemon', error);
-      this.state = 'stopped';
+      this.logger.error("Failed to start daemon", error);
+      this.state = "stopped";
       await this.cleanup();
       throw error;
     }
@@ -379,12 +428,12 @@ export class Daemon {
    * Stop the daemon and unmount the filesystem.
    */
   async stop(): Promise<void> {
-    if (this.state !== 'running') {
+    if (this.state !== "running") {
       return;
     }
 
-    this.state = 'stopping';
-    this.logger.info('Stopping daemon...');
+    this.state = "stopping";
+    this.logger.info("Stopping daemon...");
 
     // Unregister exception handler
     this.unregisterUncaughtExceptionHandler();
@@ -394,7 +443,7 @@ export class Daemon {
 
     // Unmount FUSE
     if (this.fuse) {
-      this.logger.info('Unmounting filesystem...');
+      this.logger.info("Unmounting filesystem...");
       try {
         await new Promise<void>((resolve, reject) => {
           this.fuse!.unmount((err) => {
@@ -406,13 +455,13 @@ export class Daemon {
           });
         });
       } catch (err) {
-        this.logger.warn('Error during unmount', err);
+        this.logger.warn("Error during unmount", err);
       }
     }
 
     await this.cleanup();
-    this.state = 'stopped';
-    this.logger.info('Filesystem unmounted successfully');
+    this.state = "stopped";
+    this.logger.info("Filesystem unmounted successfully");
   }
 
   /**
@@ -423,10 +472,10 @@ export class Daemon {
     // Close database connection
     if (this.db) {
       try {
-        this.logger.debug('Closing database connection...');
+        this.logger.debug("Closing database connection...");
         await this.db.close();
       } catch (err) {
-        this.logger.warn('Error closing database connection', err);
+        this.logger.warn("Error closing database connection", err);
       } finally {
         this.db = null;
       }
@@ -435,10 +484,10 @@ export class Daemon {
     // Clear cache
     if (this.cache) {
       try {
-        this.logger.debug('Clearing cache...');
+        this.logger.debug("Clearing cache...");
         this.cache.clear();
       } catch (err) {
-        this.logger.warn('Error clearing cache', err);
+        this.logger.warn("Error clearing cache", err);
       } finally {
         this.cache = null;
       }
@@ -446,7 +495,7 @@ export class Daemon {
 
     this.handlerContext = null;
     this.fuse = null;
-    this.logger.debug('Cleanup complete');
+    this.logger.debug("Cleanup complete");
   }
 
   /**
@@ -457,15 +506,26 @@ export class Daemon {
       const FuseModule = loadFuse();
       FuseModule.isConfigured((err, configured) => {
         if (err) {
-          reject(new Error(`Failed to check FUSE configuration: ${err.message}`));
-        } else if (!configured) {
           reject(
-            new Error(
-              'FUSE is not configured on this system.\n' +
-                'Please run: sudo fuse-native configure\n' +
-                'Or install FUSE libraries manually.'
-            )
+            new Error(`Failed to check FUSE configuration: ${err.message}`),
           );
+        } else if (!configured) {
+          // On Linux, check if FUSE is available in kernel even if isConfigured returns false
+          // This happens in Docker containers where fuse module is in host kernel
+          if (process.platform === "linux" && existsSync("/dev/fuse")) {
+            this.logger.warn(
+              "fuse-native isConfigured returned false, but /dev/fuse exists - proceeding anyway (Docker/container environment)",
+            );
+            resolve();
+          } else {
+            reject(
+              new Error(
+                "FUSE is not configured on this system.\n" +
+                  "Please run: sudo fuse-native configure\n" +
+                  "Or install FUSE libraries manually.",
+              ),
+            );
+          }
         } else {
           resolve();
         }
@@ -494,13 +554,15 @@ export class Daemon {
    * Register signal handlers for clean shutdown.
    */
   private registerSignalHandlers(): void {
-    const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM'];
+    const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
 
     for (const signal of signals) {
       const handler = () => {
         // Check state before attempting to stop
-        if (this.state !== 'running') {
-          console.log(`\n[lpgfs] Received ${signal}, but daemon is not running (state: ${this.state})`);
+        if (this.state !== "running") {
+          console.log(
+            `\n[lpgfs] Received ${signal}, but daemon is not running (state: ${this.state})`,
+          );
           process.exit(0);
           return;
         }
@@ -520,7 +582,7 @@ export class Daemon {
       process.on(signal, handler);
       this.signalHandlers.push({ signal, handler });
     }
-    this.logger.debug('Signal handlers registered', { signals });
+    this.logger.debug("Signal handlers registered", { signals });
   }
 
   /**
@@ -539,27 +601,29 @@ export class Daemon {
   private registerUncaughtExceptionHandler(): void {
     this.uncaughtExceptionHandler = (error: Error) => {
       // Log full error with daemon context
-      console.error('\n[lpgfs] UNCAUGHT EXCEPTION:');
+      console.error("\n[lpgfs] UNCAUGHT EXCEPTION:");
       console.error(`  State: ${this.state}`);
       console.error(`  Mountpoint: ${this.mountpoint}`);
       console.error(`  Error: ${error.message}`);
       console.error(`  Stack: ${error.stack}`);
 
       // Attempt graceful cleanup
-      this.logger.error('Attempting graceful cleanup after uncaught exception...');
+      this.logger.error(
+        "Attempting graceful cleanup after uncaught exception...",
+      );
       this.cleanup()
         .then(() => {
-          console.error('[lpgfs] Cleanup complete, exiting with code 1');
+          console.error("[lpgfs] Cleanup complete, exiting with code 1");
           process.exit(1);
         })
         .catch((cleanupErr) => {
-          console.error('[lpgfs] Cleanup failed:', cleanupErr);
+          console.error("[lpgfs] Cleanup failed:", cleanupErr);
           process.exit(1);
         });
     };
 
-    process.on('uncaughtException', this.uncaughtExceptionHandler);
-    this.logger.debug('Uncaught exception handler registered');
+    process.on("uncaughtException", this.uncaughtExceptionHandler);
+    this.logger.debug("Uncaught exception handler registered");
   }
 
   /**
@@ -567,7 +631,7 @@ export class Daemon {
    */
   private unregisterUncaughtExceptionHandler(): void {
     if (this.uncaughtExceptionHandler) {
-      process.off('uncaughtException', this.uncaughtExceptionHandler);
+      process.off("uncaughtException", this.uncaughtExceptionHandler);
       this.uncaughtExceptionHandler = null;
     }
   }
@@ -577,7 +641,7 @@ export class Daemon {
    */
   private createFuseOps(): FuseOps {
     const ctx = this.handlerContext!;
-    const logger = this.logger.child('fuse');
+    const logger = this.logger.child("fuse");
 
     // File mode constants
     const S_IFDIR = 0o040000; // Directory
@@ -596,10 +660,10 @@ export class Daemon {
       // Initialization
       init: (cb) => {
         try {
-          logger.debug('FUSE initialized');
+          logger.debug("FUSE initialized");
           cb(0);
         } catch (err) {
-          logger.error('Error in init callback', err);
+          logger.error("Error in init callback", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -609,7 +673,10 @@ export class Daemon {
         try {
           readdir(path, ctx)
             .then((entries) => {
-              cb(0, entries.map((e) => e.name));
+              cb(
+                0,
+                entries.map((e) => e.name),
+              );
             })
             .catch((err) => {
               if (err instanceof LpgfsError) {
@@ -633,13 +700,13 @@ export class Daemon {
             .then((stat) => {
               let mode: number;
               switch (stat.type) {
-                case 'directory':
+                case "directory":
                   mode = DIR_MODE;
                   break;
-                case 'file':
+                case "file":
                   mode = FILE_MODE;
                   break;
-                case 'symlink':
+                case "symlink":
                   mode = LINK_MODE;
                   break;
                 default:
@@ -654,7 +721,7 @@ export class Daemon {
                 mode,
                 uid,
                 gid,
-                nlink: stat.type === 'directory' ? 2 : 1,
+                nlink: stat.type === "directory" ? 2 : 1,
               };
 
               cb(0, fuseStats);
@@ -726,7 +793,7 @@ export class Daemon {
                 return;
               }
 
-              const content = Buffer.from(result.content, 'utf8');
+              const content = Buffer.from(result.content, "utf8");
               content.copy(buffer);
               cb(content.length);
             })
@@ -772,7 +839,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('write error', err);
+          logger.error("write error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -781,7 +848,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('create error', err);
+          logger.error("create error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -790,7 +857,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('truncate error', err);
+          logger.error("truncate error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -799,7 +866,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('ftruncate error', err);
+          logger.error("ftruncate error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -808,7 +875,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('unlink error', err);
+          logger.error("unlink error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -817,7 +884,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('mkdir error', err);
+          logger.error("mkdir error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -826,7 +893,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('rmdir error', err);
+          logger.error("rmdir error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -835,7 +902,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('rename error', err);
+          logger.error("rename error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -844,7 +911,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('symlink error', err);
+          logger.error("symlink error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -853,7 +920,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('link error', err);
+          logger.error("link error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -862,7 +929,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('chmod error', err);
+          logger.error("chmod error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -871,7 +938,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('chown error', err);
+          logger.error("chown error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -880,7 +947,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('utimens error', err);
+          logger.error("utimens error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -889,7 +956,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('mknod error', err);
+          logger.error("mknod error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -898,7 +965,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('setxattr error', err);
+          logger.error("setxattr error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -907,7 +974,7 @@ export class Daemon {
         try {
           cb(POSIX_ERRORS.EROFS);
         } catch (err) {
-          logger.error('removexattr error', err);
+          logger.error("removexattr error", err);
           cb(POSIX_ERRORS.EIO);
         }
       },
@@ -938,16 +1005,16 @@ export async function unmount(mountpoint: string): Promise<void> {
   const platform = process.platform;
 
   try {
-    if (platform === 'darwin') {
+    if (platform === "darwin") {
       // macOS
-      execSync(`umount "${absolutePath}"`, { stdio: 'pipe' });
+      execSync(`umount "${absolutePath}"`, { stdio: "pipe" });
     } else {
       // Linux and others
-      execSync(`fusermount -u "${absolutePath}"`, { stdio: 'pipe' });
+      execSync(`fusermount -u "${absolutePath}"`, { stdio: "pipe" });
     }
   } catch (error) {
     const err = error as { stderr?: Buffer; message?: string };
-    const stderr = err.stderr?.toString() ?? err.message ?? 'Unknown error';
+    const stderr = err.stderr?.toString() ?? err.message ?? "Unknown error";
     throw new Error(`Failed to unmount: ${stderr}`);
   }
 }

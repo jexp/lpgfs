@@ -15,12 +15,10 @@
   },
   "dependencies": {
     "commander": "^14.0.2",
+    "fuse-native": "^2.2.6",
     "lru-cache": "^11.0.2",
     "neo4j-driver": "^5.27.0",
     "yaml": "^2.6.1"
-  },
-  "optionalDependencies": {
-    "fuse-native": "^2.2.6"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
