@@ -56,7 +56,7 @@ After completing, append to progress.txt:
 After completed, update task list file by updating `completed: true` on that task.
 
 ## UPDATE LEARNINGS
-Update `AGENTS.md` with any learnings and patterns that would be useful for future agents.
+Update `AGENTS.md` with any learnings and patterns that would be useful for future agents. This file is not for documentation, just learnings and caveats for future programmers. Be terse and don't use for documentation, because it will get stale.
 
 # COMMIT
 
