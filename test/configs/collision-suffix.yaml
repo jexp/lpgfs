@@ -1,0 +1,36 @@
+# LPGFS Test Config: Collision Suffix Strategy
+#
+# This config uses 'suffix_elementId' collision strategy which appends
+# _<elementId> to duplicate names to make them unique.
+#
+# Expected behavior:
+#   - Normal property names when unique: alice, bob
+#   - Suffixed names on collision: alice_4_abc_0, alice_4_abc_1
+#
+# Use case: Handle duplicates gracefully while keeping readable names.
+# Note: The suffix is the sanitized elementId (colons replaced with underscores).
+
+naming:
+  default: property
+  overrides:
+    nodes:
+      Person:
+        property: "username"
+      Company:
+        property: "name"
+
+sanitization:
+  replace:
+    "/": "_"
+    "\\": "_"
+    "\0": "_"
+    ":": "_"
+    "*": "_"
+    "?": "_"
+    '"': "_"
+    "<": "_"
+    ">": "_"
+    "|": "_"
+
+collision:
+  strategy: suffix_elementId

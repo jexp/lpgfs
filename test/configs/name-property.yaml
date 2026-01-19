@@ -1,0 +1,36 @@
+# LPGFS Test Config: Name Property Strategy
+#
+# This config uses the 'name' property for Person nodes
+# instead of 'username', demonstrating different property choices.
+#
+# Expected behavior:
+#   ls /Person/  → Alice, Bob, Carol, James, New User (using name property)
+#   ls /Company/ → Acme Corp, Globex Inc (using name property)
+#
+# Note: Spaces in names are preserved (POSIX allows spaces in filenames).
+# Use quotes when accessing: cat "/Person/New User/.properties.json"
+
+naming:
+  default: property
+  overrides:
+    nodes:
+      Person:
+        property: "name"
+      Company:
+        property: "name"
+
+sanitization:
+  replace:
+    "/": "_"
+    "\\": "_"
+    "\0": "_"
+    ":": "_"
+    "*": "_"
+    "?": "_"
+    '"': "_"
+    "<": "_"
+    ">": "_"
+    "|": "_"
+
+collision:
+  strategy: suffix_elementId

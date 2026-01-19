@@ -878,7 +878,7 @@ description: |
 parentID: "lpgfs-foundation"
 dependsOn:
   - "task-031"
-completed: false
+completed: true
 ---
 id: "task-033"
 title: "Manual test: edge cases"

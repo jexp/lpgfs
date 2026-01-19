@@ -1,0 +1,40 @@
+# LPGFS Test Config: Custom Sanitization Rules
+#
+# This config demonstrates custom character replacement rules
+# for property values used as filenames.
+#
+# Custom rules:
+#   - Space → dash (instead of keeping space)
+#   - Standard forbidden chars → underscore
+#
+# Expected behavior:
+#   ls /Person/  → Alice, Bob, Carol, James, New-User (space replaced with dash)
+#   ls /Company/ → Acme-Corp, Globex-Inc (space replaced with dash)
+#
+# Use case: Avoid spaces in filenames for shell scripting compatibility.
+
+naming:
+  default: property
+  overrides:
+    nodes:
+      Person:
+        property: "name"
+      Company:
+        property: "name"
+
+sanitization:
+  replace:
+    " ": "-"
+    "/": "_"
+    "\\": "_"
+    "\0": "_"
+    ":": "_"
+    "*": "_"
+    "?": "_"
+    '"': "_"
+    "<": "_"
+    ">": "_"
+    "|": "_"
+
+collision:
+  strategy: suffix_elementId

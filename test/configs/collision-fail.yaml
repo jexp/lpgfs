@@ -1,0 +1,38 @@
+# LPGFS Test Config: Collision Fail Strategy
+#
+# This config uses 'fail' collision strategy which throws errors
+# when property-based naming results in duplicate names.
+#
+# Expected behavior:
+#   - Works normally when all property values are unique
+#   - Throws error if two nodes have the same property value
+#
+# Use case: Strict mode where duplicates are not allowed.
+# Warning: May cause mount failure or readdir errors if collisions exist.
+#
+# Test scenario: Create two Person nodes with same username to trigger error.
+
+naming:
+  default: property
+  overrides:
+    nodes:
+      Person:
+        property: "username"
+      Company:
+        property: "name"
+
+sanitization:
+  replace:
+    "/": "_"
+    "\\": "_"
+    "\0": "_"
+    ":": "_"
+    "*": "_"
+    "?": "_"
+    '"': "_"
+    "<": "_"
+    ">": "_"
+    "|": "_"
+
+collision:
+  strategy: fail

@@ -703,3 +703,35 @@
 - None - typecheck and all 386 tests pass
 - Tests require: FUSE libraries, running Neo4j instance, seeded test data
 - Tests should be run with `--foreground --debug` flags for visibility
+
+## Task 032: Manual test: config naming strategies
+- **Status:** Completed
+- **PRD Reference:** Section 5.3 (Naming Configuration)
+
+### Key Decisions
+- Created 7 test configuration files in test/configs/ covering all naming scenarios
+- Config files include detailed comments explaining expected behavior
+- Created comprehensive README.md with test procedures and verification checklists
+- Configurations cover:
+  - elementId default strategy (stable unique IDs)
+  - property default strategy (human-readable names)
+  - mixed naming (per-label overrides)
+  - collision fail strategy (strict mode)
+  - collision suffix_elementId strategy (graceful handling)
+  - name property (alternative property choice with spaces)
+  - custom sanitization (space-to-dash replacement)
+
+### Files Changed
+- test/configs/elementId-default.yaml (new): Default elementId naming
+- test/configs/property-default.yaml (new): Property naming with overrides
+- test/configs/mixed-naming.yaml (new): Mixed strategies per label
+- test/configs/collision-fail.yaml (new): Fail on collision
+- test/configs/collision-suffix.yaml (new): Suffix elementId on collision
+- test/configs/name-property.yaml (new): Use 'name' property with spaces
+- test/configs/custom-sanitization.yaml (new): Space-to-dash sanitization
+- test/configs/README.md (new): Test procedures and verification checklist
+
+### Blockers/Notes
+- None - typecheck and all 386 tests pass
+- Configs are ready for manual testing against a running Neo4j instance
+- README includes quick test script for automated verification

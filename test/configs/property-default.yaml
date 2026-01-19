@@ -1,0 +1,36 @@
+# LPGFS Test Config: Property Default Strategy
+#
+# This config uses property as the default naming strategy.
+# Requires per-label overrides to specify which property to use.
+#
+# Expected behavior:
+#   ls /Person/  → alice, bob, carol, james, newuser (using username property)
+#   ls /Company/ → Acme Corp, Globex Inc (using name property)
+#
+# Use case: Human-readable directory names based on meaningful properties.
+# Note: If no override is specified for a label, falls back to elementId.
+
+naming:
+  default: property
+  overrides:
+    nodes:
+      Person:
+        property: "username"
+      Company:
+        property: "name"
+
+sanitization:
+  replace:
+    "/": "_"
+    "\\": "_"
+    "\0": "_"
+    ":": "_"
+    "*": "_"
+    "?": "_"
+    '"': "_"
+    "<": "_"
+    ">": "_"
+    "|": "_"
+
+collision:
+  strategy: suffix_elementId

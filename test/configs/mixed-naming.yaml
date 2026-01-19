@@ -1,0 +1,34 @@
+# LPGFS Test Config: Mixed Naming Strategy
+#
+# This config demonstrates per-label override with different strategies.
+# Person uses property naming while Company uses elementId.
+#
+# Expected behavior:
+#   ls /Person/  → alice, bob, carol, james, newuser (property: username)
+#   ls /Company/ → 4:abc:0, 4:abc:1 (elementId, no override)
+#
+# Use case: Different visibility requirements per label.
+
+naming:
+  default: elementId
+  overrides:
+    nodes:
+      Person:
+        property: "username"
+    # Note: Company has no override, so it uses default (elementId)
+
+sanitization:
+  replace:
+    "/": "_"
+    "\\": "_"
+    "\0": "_"
+    ":": "_"
+    "*": "_"
+    "?": "_"
+    '"': "_"
+    "<": "_"
+    ">": "_"
+    "|": "_"
+
+collision:
+  strategy: suffix_elementId

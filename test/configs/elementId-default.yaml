@@ -1,0 +1,30 @@
+# LPGFS Test Config: elementId Default Strategy
+#
+# This config uses elementId as the default naming strategy.
+# Node directories will be named by their database elementIds.
+#
+# Expected behavior:
+#   ls /Person/  → 4:abc:0, 4:abc:1, 4:abc:2, etc.
+#   ls /Company/ → 4:def:0, 4:def:1, etc.
+#
+# Use case: Stable, unique identifiers that never change.
+# Tradeoff: Less human-readable but guaranteed unique.
+
+naming:
+  default: elementId
+
+sanitization:
+  replace:
+    "/": "_"
+    "\\": "_"
+    "\0": "_"
+    ":": "_"
+    "*": "_"
+    "?": "_"
+    '"': "_"
+    "<": "_"
+    ">": "_"
+    "|": "_"
+
+collision:
+  strategy: suffix_elementId
