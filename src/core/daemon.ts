@@ -207,7 +207,7 @@ export class Daemon {
    */
   private checkNodeVersion(): void {
     const version = process.version;
-    const majorVersion = parseInt(version.slice(1).split('.')[0], 10);
+    const majorVersion = parseInt(version.slice(1).split('.')[0] ?? '0', 10);
 
     if (majorVersion > 20) {
       this.logger.warn(
