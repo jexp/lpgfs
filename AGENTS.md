@@ -59,3 +59,4 @@ src/
 **Neo4j Driver:**
 - Use for...in with hasOwnProperty instead of Object.entries() when transforming Neo4j objects - ensures all enumerable properties captured
 - Neo4j may return objects with properties on prototype chain or non-standard enumeration
+- To fetch a node plus all its relationships (both directions) in one round trip, use two `COLLECT { MATCH (n)-[r]->(t) RETURN {..map..} }` subqueries (one per direction) in a single RETURN — `COLLECT { }` only allows exactly one returned column per subquery, so return a map literal, not multiple aliased columns. Profiles as NodeByElementIdSeek + one RollUpApply/Expand(All) per direction; no AllNodesScan/CartesianProduct. Node vs relationship elementIds never collide as cache keys — they use disjoint "4:"/"5:" prefixes.

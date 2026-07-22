@@ -136,7 +136,7 @@ tasks:
       client-side for target names. Keep the query itself simple and
       profile it (EXPLAIN/PROFILE) against a reasonably branching test node
       before finalizing the exact Cypher form.
-    status: pending
+    status: completed
     dependencies:
       - task-001
     acceptance_criteria:
@@ -146,7 +146,7 @@ tasks:
       - "Query is validated with EXPLAIN/PROFILE against a fixture node with multiple relationship types/directions and documented as reasonably efficient (no unnecessary cartesian products or full scans)"
       - "Unit tests cover a node with no relationships, one-directional-only relationships, and multiple relationship types in both directions"
       - "Integration test against a live Docker Neo4j instance (via neo4j-cli) verifies the query against real data, not just mocked driver responses"
-    completed_at: null
+    completed_at: "2026-07-22T19:50:30Z"
 
   - id: task-007
     title: "Wire markdown mode into readdir/getattr/read FUSE handlers"

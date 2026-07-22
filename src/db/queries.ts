@@ -480,6 +480,229 @@ export async function getRelationships(
 }
 
 /**
+ * A single raw relationship row as returned by getNodeForMarkdown's Cypher
+ * query, before any grouping/sorting/naming resolution (all done
+ * client-side by groupRelationshipsForMarkdown).
+ */
+export interface MarkdownRelationshipRow {
+  relType: string;
+  direction: Direction;
+  targetLabels: string[];
+  targetElementId: string;
+  targetProperties: Properties;
+}
+
+/**
+ * Result of getNodeForMarkdown: a node's labels/properties plus every
+ * relationship (both directions, all types) as raw, ungrouped rows.
+ */
+export interface NodeForMarkdownResult {
+  labels: string[];
+  properties: Properties;
+  relationships: MarkdownRelationshipRow[];
+}
+
+interface RawMarkdownQueryRow {
+  properties: Properties;
+  labels: string[];
+  outRows: Array<{
+    relType: string;
+    targetLabels: string[];
+    targetElementId: string;
+    targetProperties: Properties;
+  }>;
+  inRows: Array<{
+    relType: string;
+    targetLabels: string[];
+    targetElementId: string;
+    targetProperties: Properties;
+  }>;
+}
+
+/**
+ * Fetch a node's properties, labels, and every relationship (both
+ * directions, all types) in exactly one Cypher round trip (REQ-F-032,
+ * REQ-NF-002), for markdown-mode rendering. Replaces the
+ * getNodeProperties + getRelationships pair for this use case.
+ *
+ * Profiled shape (PROFILE against a 4-node/4-relationship fixture): a
+ * single NodeByElementIdSeek followed by one Expand(All) per direction
+ * inside a RollUpApply (the COLLECT { } subquery) — no AllNodesScan, no
+ * CartesianProduct. Grouping by relationship type/direction, sorting, and
+ * target naming-strategy resolution are all done client-side by
+ * groupRelationshipsForMarkdown, not in this query.
+ */
+export async function getNodeForMarkdown(
+  db: DatabaseConnection,
+  elementId: string,
+  cache?: Cache
+): Promise<NodeForMarkdownResult | null> {
+  // Reuses the `props:` prefix: node and relationship elementIds are
+  // drawn from disjoint id spaces (elementId prefixes "4:" vs "5:"), so
+  // this can never collide with getRelationshipProperties' cache entries.
+  const key = cacheKey.props(elementId);
+  if (cache) {
+    const cached = cache.get<NodeForMarkdownResult | null>(key);
+    if (cached !== undefined) return cached;
+  }
+
+  const result = await db.executeQuery<RawMarkdownQueryRow>(
+    `CYPHER 25
+     MATCH (n) WHERE elementId(n) = $elementId
+     RETURN properties(n) AS properties,
+            labels(n) AS labels,
+            COLLECT {
+              MATCH (n)-[r]->(t)
+              RETURN {
+                relType: type(r),
+                targetLabels: labels(t),
+                targetElementId: elementId(t),
+                targetProperties: properties(t)
+              }
+            } AS outRows,
+            COLLECT {
+              MATCH (n)<-[r]-(t)
+              RETURN {
+                relType: type(r),
+                targetLabels: labels(t),
+                targetElementId: elementId(t),
+                targetProperties: properties(t)
+              }
+            } AS inRows`,
+    { elementId }
+  );
+
+  const record = result.records[0];
+  if (!record) {
+    if (cache) cache.set(key, null);
+    return null;
+  }
+
+  const relationships: MarkdownRelationshipRow[] = [
+    ...record.outRows.map((row) => ({ ...row, direction: 'OUT' as Direction })),
+    ...record.inRows.map((row) => ({ ...row, direction: 'IN' as Direction })),
+  ];
+
+  const nodeResult: NodeForMarkdownResult = {
+    labels: record.labels,
+    properties: record.properties,
+    relationships,
+  };
+
+  if (cache) cache.set(key, nodeResult);
+  return nodeResult;
+}
+
+/**
+ * A relationship link resolved to its target's display name, grouped and
+ * sorted for markdown rendering.
+ */
+export interface MarkdownRelationshipLink {
+  type: string;
+  direction: Direction;
+  targetLabel: string;
+  targetName: string;
+  targetElementId: string;
+}
+
+/** One relationship-type/direction group of {@link MarkdownRelationshipLink}s. */
+export interface MarkdownRelationshipGroup {
+  /** Group key: the relationship type for OUT, `in_<TYPE>` for IN. */
+  key: string;
+  /** Links in this group, sorted by target label then target name. */
+  links: MarkdownRelationshipLink[];
+}
+
+function compareByLabelThenName(a: MarkdownRelationshipLink, b: MarkdownRelationshipLink): number {
+  if (a.targetLabel !== b.targetLabel) return a.targetLabel < b.targetLabel ? -1 : 1;
+  if (a.targetName === b.targetName) return 0;
+  return a.targetName < b.targetName ? -1 : 1;
+}
+
+/**
+ * Resolves each raw relationship row's target display name using the same
+ * naming-strategy logic (elementId vs. property, per-label overrides) as
+ * getRelationships/getNodesByLabel, then groups by relationship
+ * type/direction and sorts targets by label then name. Pure and
+ * DB-independent so it's unit-testable without a live Neo4j instance.
+ *
+ * Collisions are resolved per target label across *all* of this node's
+ * relationships (not just within one type/direction group), since two
+ * differently-typed links pointing at same-named nodes of the same label
+ * would otherwise render distinct link targets to the identical path.
+ */
+export function groupRelationshipsForMarkdown(
+  rows: MarkdownRelationshipRow[],
+  config: ConfigSchema = DEFAULT_CONFIG
+): MarkdownRelationshipGroup[] {
+  const mode = config.mode.type;
+
+  const links: MarkdownRelationshipLink[] = rows.map((row) => {
+    const targetLabel = row.targetLabels[0] || 'Unknown';
+    const namingStrategy = getNamingStrategy(targetLabel, config);
+    const propertyName = getPropertyName(targetLabel, config);
+
+    let targetName: string;
+    if (namingStrategy === 'property' && propertyName) {
+      const propValue = row.targetProperties[propertyName];
+      targetName =
+        propValue === undefined
+          ? sanitizeElementId(row.targetElementId, config.sanitization, mode)
+          : sanitize(propValue, config.sanitization, mode);
+    } else {
+      targetName = sanitizeElementId(row.targetElementId, config.sanitization, mode);
+    }
+
+    return {
+      type: row.relType,
+      direction: row.direction,
+      targetLabel,
+      targetName,
+      targetElementId: row.targetElementId,
+    };
+  });
+
+  const indicesByLabel = new Map<string, number[]>();
+  links.forEach((link, index) => {
+    const indices = indicesByLabel.get(link.targetLabel);
+    if (indices) {
+      indices.push(index);
+    } else {
+      indicesByLabel.set(link.targetLabel, [index]);
+    }
+  });
+
+  for (const [label, indices] of indicesByLabel) {
+    const items = indices.map((index) => ({
+      baseName: links[index]!.targetName,
+      elementId: links[index]!.targetElementId,
+    }));
+    const resolvedNames = resolveCollisions(items, label, config.collision);
+    indices.forEach((index, position) => {
+      links[index]!.targetName = resolvedNames[position]!;
+    });
+  }
+
+  const groups = new Map<string, MarkdownRelationshipLink[]>();
+  for (const link of links) {
+    const groupKey = link.direction === 'IN' ? `in_${link.type}` : link.type;
+    const group = groups.get(groupKey);
+    if (group) {
+      group.push(link);
+    } else {
+      groups.set(groupKey, [link]);
+    }
+  }
+
+  return Array.from(groups.keys())
+    .sort()
+    .map((groupKey) => ({
+      key: groupKey,
+      links: [...groups.get(groupKey)!].sort(compareByLabelThenName),
+    }));
+}
+
+/**
  * Result from getRelationshipProperties: relationship properties with _elementId included.
  */
 export interface RelationshipPropertiesResult {
