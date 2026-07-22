@@ -46,7 +46,7 @@ tasks:
       replacement map additionally covers [, ], #, ^, | and so that any
       sanitized node name equal to 'index' or 'log' gets a collision-style
       suffix, keeping those two filenames reserved for generated bundle files.
-    status: pending
+    status: completed
     dependencies:
       - task-001
     acceptance_criteria:
@@ -54,7 +54,7 @@ tasks:
       - "A node whose sanitized name is exactly 'index' or 'log' is suffixed using the existing collision strategy"
       - "Classic mode sanitization behavior is unchanged"
       - "Unit tests cover each newly sanitized character and both reserved names"
-    completed_at: null
+    completed_at: "2026-07-22T21:00:00Z"
 
   - id: task-004
     title: "Build the markdown-mode path parser"

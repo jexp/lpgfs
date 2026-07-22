@@ -9,6 +9,7 @@ import {
   SanitizationConfig,
   DEFAULT_CONFIG,
   PropertyValue,
+  ModeType,
 } from '../types/index.js';
 
 /**
@@ -17,13 +18,28 @@ import {
 const EMPTY_PLACEHOLDER = '_empty_';
 
 /**
+ * Additional character replacements applied only in markdown mode.
+ * Covers characters illegal in Obsidian filenames/wikilinks per REQ-F-012:
+ * `[`, `]`, `#`, `^`, `|` (`|` also appears in the classic default map).
+ */
+export const MARKDOWN_MODE_REPLACE_ADDITIONS: Record<string, string> = {
+  '[': '_',
+  ']': '_',
+  '#': '_',
+  '^': '_',
+  '|': '_',
+};
+
+/**
  * Sanitize a property value for use as a filename.
  *
  * Replaces characters that are invalid or problematic in filesystem names.
- * Uses the replacement map from the sanitization config.
+ * Uses the replacement map from the sanitization config. In markdown mode,
+ * the map is extended with characters illegal in Obsidian filenames/wikilinks.
  *
  * @param value - The property value to sanitize
  * @param config - Sanitization configuration (uses defaults if not provided)
+ * @param mode - Filesystem layout mode; 'markdown' extends the replacement map
  * @returns A sanitized string safe for use as a filename
  *
  * @example
@@ -31,14 +47,19 @@ const EMPTY_PLACEHOLDER = '_empty_';
  * sanitize('test:file'); // 'test_file'
  * sanitize(null); // '_empty_'
  * sanitize(''); // '_empty_'
+ * sanitize('[[note]]', undefined, 'markdown'); // '__note__'
  */
 export function sanitize(
   value: PropertyValue,
-  config?: SanitizationConfig
+  config?: SanitizationConfig,
+  mode: ModeType = 'classic'
 ): string {
   // Use default config if not provided
   const sanitizationConfig = config ?? DEFAULT_CONFIG.sanitization!;
-  const replaceMap = sanitizationConfig.replace;
+  const replaceMap =
+    mode === 'markdown'
+      ? { ...sanitizationConfig.replace, ...MARKDOWN_MODE_REPLACE_ADDITIONS }
+      : sanitizationConfig.replace;
 
   // Handle null/undefined
   if (value === null || value === undefined) {
@@ -148,7 +169,8 @@ export function isValidFilename(name: string): boolean {
  */
 export function sanitizeElementId(
   elementId: string,
-  config?: SanitizationConfig
+  config?: SanitizationConfig,
+  mode: ModeType = 'classic'
 ): string {
-  return sanitize(elementId, config);
+  return sanitize(elementId, config, mode);
 }

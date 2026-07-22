@@ -14,6 +14,14 @@ import {
 import { sanitizeElementId } from './sanitize.js';
 
 /**
+ * Filenames reserved for generated bundle files in markdown mode
+ * (REQ-F-028). Pass these as `reservedNames` to CollisionResolver /
+ * resolveCollisions / createCollisionResolver so a node whose sanitized
+ * name would collide with a generated file gets suffixed instead.
+ */
+export const MARKDOWN_MODE_RESERVED_NAMES: string[] = ['index', 'log'];
+
+/**
  * Error thrown when collision strategy is 'fail' and a collision occurs.
  */
 export class CollisionError extends Error {
@@ -62,10 +70,21 @@ export class CollisionResolver {
    *
    * @param context - Context name for error messages
    * @param config - Collision configuration (uses defaults if not provided)
+   * @param reservedNames - Names that count as already taken before any
+   *   real item is resolved (e.g. 'index'/'log' in markdown mode, reserved
+   *   for generated bundle files). A node whose base name matches one of
+   *   these is routed through the normal collision strategy immediately.
    */
-  constructor(context: string, config?: CollisionConfig) {
+  constructor(
+    context: string,
+    config?: CollisionConfig,
+    reservedNames?: string[]
+  ) {
     this.context = context;
     this.config = config ?? DEFAULT_CONFIG.collision!;
+    for (const reserved of reservedNames ?? []) {
+      this.usedNames.set(reserved, (this.usedNames.get(reserved) ?? 0) + 1);
+    }
   }
 
   /**
@@ -179,6 +198,7 @@ export class CollisionResolver {
  * @param items - Array of items with baseName and elementId
  * @param context - Context name for error messages
  * @param config - Collision configuration (uses defaults if not provided)
+ * @param reservedNames - Names to treat as already taken (see CollisionResolver)
  * @returns Array of resolved names in the same order as input
  *
  * @example
@@ -192,9 +212,10 @@ export class CollisionResolver {
 export function resolveCollisions(
   items: Array<{ baseName: string; elementId: string }>,
   context: string,
-  config?: CollisionConfig
+  config?: CollisionConfig,
+  reservedNames?: string[]
 ): string[] {
-  const resolver = new CollisionResolver(context, config);
+  const resolver = new CollisionResolver(context, config, reservedNames);
   return items.map((item) => resolver.resolve(item.baseName, item.elementId));
 }
 
@@ -204,11 +225,13 @@ export function resolveCollisions(
  *
  * @param context - Context name for error messages
  * @param config - Collision configuration
+ * @param reservedNames - Names to treat as already taken (see CollisionResolver)
  * @returns A new CollisionResolver instance
  */
 export function createCollisionResolver(
   context: string,
-  config?: CollisionConfig
+  config?: CollisionConfig,
+  reservedNames?: string[]
 ): CollisionResolver {
-  return new CollisionResolver(context, config);
+  return new CollisionResolver(context, config, reservedNames);
 }

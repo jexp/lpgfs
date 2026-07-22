@@ -2,3 +2,8 @@
 Added mode.type (classic|markdown) and mode.markdown sub-schema (labels, linkStyle, includeIncoming, textProperties, fields) to ConfigSchema, with validation/defaulting in ConfigParser mirroring the existing validateNaming/validateSanitization/validateCollision pattern.
 Files: ~src/types/index.ts, ~src/config/parser.ts, +src/config/parser.test.ts
 Decisions: mode.markdown defaults are filled in (DEFAULT_MARKDOWN_MODE_CONFIG) whenever mode.type is 'markdown' and the markdown section is omitted; the markdown sub-schema is validated whenever present regardless of mode.type.
+
+## TASK-003 — 2026-07-22T21:00:00Z
+Added an optional mode-aware character map to sanitize()/sanitizeElementId() (extends the default replacement map with `[`, `]`, `#`, `^`, `|` when mode is 'markdown') and an optional reservedNames list to CollisionResolver/resolveCollisions/createCollisionResolver so a first-seen name matching a reserved name (e.g. 'index'/'log') is routed through the existing collision strategy.
+Files: ~src/config/sanitize.ts, ~src/config/collision.ts, +src/config/sanitize.test.ts, +src/config/collision.test.ts
+Decisions: both new parameters are appended positionally with backward-compatible defaults ('classic' mode, no reserved names) so existing callers in src/db/queries.ts are unaffected; reserved names are pre-seeded into the resolver's usedNames map at count 1 with no elementId mapping, so the first real node with that name is treated as a collision rather than a fresh name.
