@@ -13,14 +13,14 @@ tasks:
       and validate/merge it in src/config/parser.ts, following the existing
       validateNaming/validateSanitization patterns. Default mode.type is
       'classic' so existing behavior and config files are unaffected.
-    status: pending
+    status: completed
+    completed_at: 2026-07-22T18:50:12Z
     dependencies: []
     acceptance_criteria:
       - "ConfigSchema type includes a mode field with classic as the default when omitted"
       - "ConfigParser.validate rejects invalid mode.type, linkStyle, or malformed textProperties/fields shapes with ConfigValidationError"
       - "ConfigParser.parse on an empty or classic-only config produces identical output to current behavior (regression-safe)"
       - "Unit tests cover valid markdown mode configs, missing sections falling back to defaults, and each validation error path"
-    completed_at: null
 
   - id: task-002
     title: "Add --mode CLI flag and wire MountOptions"

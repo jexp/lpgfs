@@ -118,6 +118,80 @@ export interface CollisionConfig {
 }
 
 /**
+ * Filesystem layout mode.
+ * - 'classic': existing label/node/relationship directory hierarchy
+ * - 'markdown': OKF-style markdown vault rendering
+ */
+export type ModeType = 'classic' | 'markdown';
+
+/**
+ * Link style used when rendering relationship links in markdown mode.
+ * - 'wikilink': Obsidian-native `[[Label/name]]` links
+ * - 'markdown': bundle-relative absolute path links `/Label/name.md`
+ */
+export type LinkStyle = 'wikilink' | 'markdown';
+
+/**
+ * Per-label override shape shared by textProperties and fields overrides:
+ * a label name maps to an ordered list of property names.
+ */
+export type LabelPropertyListOverrides = Record<string, string[]>;
+
+/**
+ * Configuration for which node properties form the markdown body.
+ */
+export interface TextPropertiesConfig {
+  /** Default ordered list of property names composing the body */
+  default: string[];
+  /** Per-label overrides of the default list */
+  overrides?: LabelPropertyListOverrides;
+}
+
+/**
+ * Fallback property lists for the OKF/Obsidian canonical frontmatter fields.
+ */
+export interface MarkdownFieldsConfig {
+  /** Ordered fallback list of properties mapped to the `title` field */
+  title: string[];
+  /** Ordered fallback list of properties mapped to the `timestamp` field */
+  timestamp: string[];
+  /** Ordered fallback list of properties mapped to the `tags` field */
+  tags: string[];
+  /** Per-label overrides of the fallback lists above */
+  overrides?: {
+    title?: LabelPropertyListOverrides;
+    timestamp?: LabelPropertyListOverrides;
+    tags?: LabelPropertyListOverrides;
+  };
+}
+
+/**
+ * Markdown mode sub-configuration (used when mode.type === 'markdown').
+ */
+export interface MarkdownModeConfig {
+  /** Allow-list of labels to render; unset/empty means all labels */
+  labels?: string[];
+  /** Link style used for relationship links */
+  linkStyle: LinkStyle;
+  /** Whether to render incoming relationships under `in_<TYPE>` keys */
+  includeIncoming: boolean;
+  /** Which properties form the markdown body */
+  textProperties: TextPropertiesConfig;
+  /** Canonical frontmatter field mappings */
+  fields: MarkdownFieldsConfig;
+}
+
+/**
+ * Filesystem mode configuration.
+ */
+export interface ModeConfig {
+  /** Selected layout mode */
+  type: ModeType;
+  /** Markdown mode sub-configuration (only relevant when type === 'markdown') */
+  markdown?: MarkdownModeConfig;
+}
+
+/**
  * Complete configuration schema for .lpgfs.yaml file.
  */
 export interface ConfigSchema {
@@ -127,6 +201,8 @@ export interface ConfigSchema {
   sanitization?: SanitizationConfig;
   /** Collision handling configuration */
   collision?: CollisionConfig;
+  /** Filesystem layout mode configuration */
+  mode: ModeConfig;
 }
 
 /**
@@ -152,6 +228,26 @@ export const DEFAULT_CONFIG: ConfigSchema = {
   },
   collision: {
     strategy: 'suffix_elementId',
+  },
+  mode: {
+    type: 'classic',
+  },
+};
+
+/**
+ * Default markdown mode configuration, applied when mode.type is
+ * 'markdown' and mode.markdown is otherwise unset.
+ */
+export const DEFAULT_MARKDOWN_MODE_CONFIG: MarkdownModeConfig = {
+  linkStyle: 'wikilink',
+  includeIncoming: false,
+  textProperties: {
+    default: ['summary', 'text', 'content'],
+  },
+  fields: {
+    title: ['title', 'name'],
+    timestamp: ['updated', 'lastUpdated', 'modified', 'created'],
+    tags: ['tags', 'categories'],
   },
 };
 

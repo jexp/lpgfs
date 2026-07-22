@@ -14,7 +14,15 @@ import {
   SanitizationConfig,
   CollisionConfig,
   CollisionStrategy,
+  ModeConfig,
+  ModeType,
+  MarkdownModeConfig,
+  LinkStyle,
+  TextPropertiesConfig,
+  MarkdownFieldsConfig,
+  LabelPropertyListOverrides,
   DEFAULT_CONFIG,
+  DEFAULT_MARKDOWN_MODE_CONFIG,
   LpgfsError,
   POSIX_ERRORS,
 } from '../types/index.js';
@@ -123,6 +131,11 @@ export class ConfigParser {
     // Validate collision section
     if (raw.collision !== undefined) {
       config.collision = ConfigParser.validateCollision(raw.collision);
+    }
+
+    // Validate mode section
+    if (raw.mode !== undefined) {
+      config.mode = ConfigParser.validateMode(raw.mode);
     }
 
     return config;
@@ -294,10 +307,232 @@ export class ConfigParser {
   }
 
   /**
+   * Validate the mode configuration section.
+   */
+  private static validateMode(raw: unknown): ModeConfig {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new ConfigValidationError('mode must be an object');
+    }
+
+    const rawMode = raw as Record<string, unknown>;
+    const mode: ModeConfig = { type: 'classic' };
+
+    if (rawMode.type !== undefined) {
+      if (!ConfigParser.isModeType(rawMode.type)) {
+        throw new ConfigValidationError(
+          `mode.type must be 'classic' or 'markdown', got: ${rawMode.type}`
+        );
+      }
+      mode.type = rawMode.type;
+    }
+
+    if (rawMode.markdown !== undefined) {
+      mode.markdown = ConfigParser.validateMarkdownMode(rawMode.markdown);
+    } else if (mode.type === 'markdown') {
+      mode.markdown = structuredClone(DEFAULT_MARKDOWN_MODE_CONFIG);
+    }
+
+    return mode;
+  }
+
+  /**
+   * Validate the mode.markdown configuration section.
+   */
+  private static validateMarkdownMode(raw: unknown): MarkdownModeConfig {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new ConfigValidationError('mode.markdown must be an object');
+    }
+
+    const rawMarkdown = raw as Record<string, unknown>;
+    const markdown: MarkdownModeConfig = structuredClone(
+      DEFAULT_MARKDOWN_MODE_CONFIG
+    );
+
+    if (rawMarkdown.labels !== undefined) {
+      markdown.labels = ConfigParser.validateStringArray(
+        rawMarkdown.labels,
+        'mode.markdown.labels'
+      );
+    }
+
+    if (rawMarkdown.linkStyle !== undefined) {
+      if (!ConfigParser.isLinkStyle(rawMarkdown.linkStyle)) {
+        throw new ConfigValidationError(
+          `mode.markdown.linkStyle must be 'wikilink' or 'markdown', got: ${rawMarkdown.linkStyle}`
+        );
+      }
+      markdown.linkStyle = rawMarkdown.linkStyle;
+    }
+
+    if (rawMarkdown.includeIncoming !== undefined) {
+      if (typeof rawMarkdown.includeIncoming !== 'boolean') {
+        throw new ConfigValidationError(
+          'mode.markdown.includeIncoming must be a boolean'
+        );
+      }
+      markdown.includeIncoming = rawMarkdown.includeIncoming;
+    }
+
+    if (rawMarkdown.textProperties !== undefined) {
+      markdown.textProperties = ConfigParser.validateTextProperties(
+        rawMarkdown.textProperties
+      );
+    }
+
+    if (rawMarkdown.fields !== undefined) {
+      markdown.fields = ConfigParser.validateMarkdownFields(
+        rawMarkdown.fields
+      );
+    }
+
+    return markdown;
+  }
+
+  /**
+   * Validate the mode.markdown.textProperties configuration section.
+   */
+  private static validateTextProperties(raw: unknown): TextPropertiesConfig {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new ConfigValidationError(
+        'mode.markdown.textProperties must be an object'
+      );
+    }
+
+    const rawTextProperties = raw as Record<string, unknown>;
+    const textProperties: TextPropertiesConfig = {
+      default: [...DEFAULT_MARKDOWN_MODE_CONFIG.textProperties.default],
+    };
+
+    if (rawTextProperties.default !== undefined) {
+      textProperties.default = ConfigParser.validateStringArray(
+        rawTextProperties.default,
+        'mode.markdown.textProperties.default'
+      );
+    }
+
+    if (rawTextProperties.overrides !== undefined) {
+      textProperties.overrides = ConfigParser.validateLabelPropertyListOverrides(
+        rawTextProperties.overrides,
+        'mode.markdown.textProperties.overrides'
+      );
+    }
+
+    return textProperties;
+  }
+
+  /**
+   * Validate the mode.markdown.fields configuration section.
+   */
+  private static validateMarkdownFields(raw: unknown): MarkdownFieldsConfig {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new ConfigValidationError('mode.markdown.fields must be an object');
+    }
+
+    const rawFields = raw as Record<string, unknown>;
+    const fields: MarkdownFieldsConfig = {
+      title: [...DEFAULT_MARKDOWN_MODE_CONFIG.fields.title],
+      timestamp: [...DEFAULT_MARKDOWN_MODE_CONFIG.fields.timestamp],
+      tags: [...DEFAULT_MARKDOWN_MODE_CONFIG.fields.tags],
+    };
+
+    for (const field of ['title', 'timestamp', 'tags'] as const) {
+      if (rawFields[field] !== undefined) {
+        fields[field] = ConfigParser.validateStringArray(
+          rawFields[field],
+          `mode.markdown.fields.${field}`
+        );
+      }
+    }
+
+    if (rawFields.overrides !== undefined) {
+      if (
+        typeof rawFields.overrides !== 'object' ||
+        rawFields.overrides === null ||
+        Array.isArray(rawFields.overrides)
+      ) {
+        throw new ConfigValidationError(
+          'mode.markdown.fields.overrides must be an object'
+        );
+      }
+
+      const rawOverrides = rawFields.overrides as Record<string, unknown>;
+      fields.overrides = {};
+
+      for (const field of ['title', 'timestamp', 'tags'] as const) {
+        if (rawOverrides[field] !== undefined) {
+          fields.overrides[field] =
+            ConfigParser.validateLabelPropertyListOverrides(
+              rawOverrides[field],
+              `mode.markdown.fields.overrides.${field}`
+            );
+        }
+      }
+    }
+
+    return fields;
+  }
+
+  /**
+   * Validate a per-label property list override map, e.g.
+   * `{ Character: ['description', 'story'] }`.
+   */
+  private static validateLabelPropertyListOverrides(
+    raw: unknown,
+    path: string
+  ): LabelPropertyListOverrides {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new ConfigValidationError(`${path} must be an object`);
+    }
+
+    const rawOverrides = raw as Record<string, unknown>;
+    const overrides: LabelPropertyListOverrides = {};
+
+    for (const [label, value] of Object.entries(rawOverrides)) {
+      overrides[label] = ConfigParser.validateStringArray(
+        value,
+        `${path}.${label}`
+      );
+    }
+
+    return overrides;
+  }
+
+  /**
+   * Validate that a value is an array of strings.
+   */
+  private static validateStringArray(raw: unknown, path: string): string[] {
+    if (!Array.isArray(raw)) {
+      throw new ConfigValidationError(`${path} must be an array of strings`);
+    }
+
+    for (const entry of raw) {
+      if (typeof entry !== 'string') {
+        throw new ConfigValidationError(`${path} must be an array of strings`);
+      }
+    }
+
+    return raw as string[];
+  }
+
+  /**
    * Type guard for NamingStrategy.
    */
   private static isNamingStrategy(value: unknown): value is NamingStrategy {
     return value === 'elementId' || value === 'property';
+  }
+
+  /**
+   * Type guard for ModeType.
+   */
+  private static isModeType(value: unknown): value is ModeType {
+    return value === 'classic' || value === 'markdown';
+  }
+
+  /**
+   * Type guard for LinkStyle.
+   */
+  private static isLinkStyle(value: unknown): value is LinkStyle {
+    return value === 'wikilink' || value === 'markdown';
   }
 
   /**

@@ -1,0 +1,4 @@
+## TASK-001 — 2026-07-22T18:50:12Z
+Added mode.type (classic|markdown) and mode.markdown sub-schema (labels, linkStyle, includeIncoming, textProperties, fields) to ConfigSchema, with validation/defaulting in ConfigParser mirroring the existing validateNaming/validateSanitization/validateCollision pattern.
+Files: ~src/types/index.ts, ~src/config/parser.ts, +src/config/parser.test.ts
+Decisions: mode.markdown defaults are filled in (DEFAULT_MARKDOWN_MODE_CONFIG) whenever mode.type is 'markdown' and the markdown section is omitted; the markdown sub-schema is validated whenever present regardless of mode.type.
