@@ -1,0 +1,338 @@
+feature: markdown-mode
+prd: ./prd-markdown-mode.md
+created_at: 2026-07-22T00:00:00Z
+updated_at: 2026-07-22T00:00:00Z
+
+tasks:
+  - id: task-001
+    title: "Extend ConfigSchema and parser with the mode section"
+    description: |
+      Add `mode.type: classic | markdown` and the full `mode.markdown` sub-schema
+      (labels, linkStyle, includeIncoming, textProperties default/overrides,
+      fields default/overrides for title/timestamp/tags) to src/types/index.ts
+      and validate/merge it in src/config/parser.ts, following the existing
+      validateNaming/validateSanitization patterns. Default mode.type is
+      'classic' so existing behavior and config files are unaffected.
+    status: pending
+    dependencies: []
+    acceptance_criteria:
+      - "ConfigSchema type includes a mode field with classic as the default when omitted"
+      - "ConfigParser.validate rejects invalid mode.type, linkStyle, or malformed textProperties/fields shapes with ConfigValidationError"
+      - "ConfigParser.parse on an empty or classic-only config produces identical output to current behavior (regression-safe)"
+      - "Unit tests cover valid markdown mode configs, missing sections falling back to defaults, and each validation error path"
+    completed_at: null
+
+  - id: task-002
+    title: "Add --mode CLI flag and wire MountOptions"
+    description: |
+      Add a --mode <classic|markdown> flag to the mount command in
+      src/cli/index.ts, extend MountOptions/DEFAULT_MOUNT_OPTIONS in
+      src/types/index.ts, and ensure the CLI flag overrides the config
+      file's mode.type when both are present.
+    status: pending
+    dependencies:
+      - task-001
+    acceptance_criteria:
+      - "lpgfs mount --mode markdown overrides mode.type from .lpgfs.yaml"
+      - "Omitting --mode preserves the config file's mode.type (or classic default)"
+      - "Invalid --mode values are rejected with a clear CLI error"
+      - "CLI unit tests cover flag parsing and precedence over config file"
+    completed_at: null
+
+  - id: task-003
+    title: "Add Obsidian-illegal character sanitization and reserved-name suffixing"
+    description: |
+      Extend src/config/sanitize.ts so that in markdown mode the default
+      replacement map additionally covers [, ], #, ^, | and so that any
+      sanitized node name equal to 'index' or 'log' gets a collision-style
+      suffix, keeping those two filenames reserved for generated bundle files.
+    status: pending
+    dependencies:
+      - task-001
+    acceptance_criteria:
+      - "Sanitizing a name containing [, ], #, ^, or | replaces them per the extended map only when mode is markdown"
+      - "A node whose sanitized name is exactly 'index' or 'log' is suffixed using the existing collision strategy"
+      - "Classic mode sanitization behavior is unchanged"
+      - "Unit tests cover each newly sanitized character and both reserved names"
+    completed_at: null
+
+  - id: task-004
+    title: "Build the markdown-mode path parser"
+    description: |
+      Add a mode-aware path parser (new module or extension of
+      src/core/path-parser.ts) that recognizes markdown-mode paths:
+      root, /<Label>, /<Label>/<name>.md, /index.md, /log.md, and
+      /<Label>/index.md. Strips the .md extension before node lookup and
+      returns ENOENT for any deeper or malformed path.
+    status: pending
+    dependencies:
+      - task-001
+      - task-003
+    acceptance_criteria:
+      - "Parsing /<Label>/<name>.md yields a node PathContext with label and stripped name"
+      - "Parsing /index.md, /log.md, and /<Label>/index.md yields distinct generated-file PathContext variants"
+      - "Paths deeper than /<Label>/<name>.md return ENOENT"
+      - "Unit tests cover root, label, node file, both generated-file types, and invalid paths"
+    completed_at: null
+
+  - id: task-005
+    title: "Implement the pure markdown renderer for a single node"
+    description: |
+      Create src/markdown/renderer.ts exporting a pure function that takes
+      resolved properties, relationships, and the markdown mode config and
+      returns the full markdown string for one node: type key first, then
+      mapped fields, then remaining properties alphabetical (YAML via the
+      existing yaml dependency), then per-rel-type frontmatter link keys
+      (wikilink or markdown link style, alphabetical target order), then the
+      concatenated text body with ## headings when multiple sections are
+      present.
+    status: pending
+    dependencies:
+      - task-001
+    acceptance_criteria:
+      - "Frontmatter key order is deterministic: type, mapped fields, remaining properties (alphabetical), relationship keys (alphabetical)"
+      - "linkStyle: wikilink emits quoted \"[[Label/name]]\"; linkStyle: markdown emits /Label/name.md"
+      - "Body renders bare for a single present text property and with ## headings for multiple"
+      - "A node with no configured text properties present renders frontmatter-only with an empty body"
+      - "Unit tests cover Neo4j Integer/Float/temporal/point property serialization, list properties, and incoming-link (in_<TYPE>) rendering when enabled"
+    completed_at: null
+
+  - id: task-006
+    title: "Implement title/timestamp/tags field-mapping resolver"
+    description: |
+      Add a resolver (e.g. src/markdown/fields.ts) implementing the
+      per-field ordered fallback lookup described in REQ-F-050/051/052:
+      for each of title, timestamp, tags, pick the first property present
+      on the node from the configured (or default) fallback list, omit the
+      source property from remaining frontmatter, serialize timestamp as
+      ISO 8601 and coerce scalar tags to a single-item list. Design the
+      resolver behind a small interface so a future CypherFieldResolver can
+      be substituted without changing the renderer (per Future Extensions).
+    status: pending
+    dependencies:
+      - task-005
+    acceptance_criteria:
+      - "A node with 'updated' and a node with only 'lastUpdated' both resolve to the same canonical timestamp key"
+      - "The source property used for a mapped field is not duplicated elsewhere in frontmatter"
+      - "A node matching none of a field's fallbacks omits that canonical key entirely"
+      - "A scalar tags value becomes a single-item YAML list; setting a field's fallback list to [] disables that mapping"
+      - "Resolver is invoked through an interface the renderer depends on, not a hardcoded property lookup"
+    completed_at: null
+
+  - id: task-007
+    title: "Wire markdown mode into readdir/getattr/read FUSE handlers"
+    description: |
+      Extend src/fuse/handlers.ts so that when mode.type is markdown,
+      readdir/getattr/read dispatch to the new path parser and renderer:
+      root/label directory listing, per-node markdown rendering and
+      caching keyed by node elementId (reused between getattr size
+      computation and read), and EROFS for all write operations. Follow
+      the existing try-catch-wrapped callback pattern noted in AGENTS.md.
+    status: pending
+    dependencies:
+      - task-004
+      - task-005
+      - task-006
+    acceptance_criteria:
+      - "readdir on root lists one entry per rendered label plus index.md and log.md"
+      - "getattr on a node's .md file reports size equal to the exact rendered byte length"
+      - "read on a node's .md file returns the same content used to compute its getattr size, without re-rendering twice"
+      - "All write FUSE operations continue returning EROFS in markdown mode"
+      - "Handler unit tests cover classic mode being unaffected and markdown mode's readdir/getattr/read/write paths"
+    completed_at: null
+
+  - id: task-008
+    title: "Apply mode.markdown.labels filtering across listing and rendering"
+    description: |
+      Ensure label listing, node lookup, and link target rendering respect
+      an optional mode.markdown.labels allow-list: unset means all labels
+      render; when set, only listed labels appear as directories, while
+      links to nodes in excluded labels still render (as unresolved links
+      per OKF's tolerance for broken links).
+    status: pending
+    dependencies:
+      - task-007
+    acceptance_criteria:
+      - "Root readdir only lists directories for labels present in mode.markdown.labels when configured"
+      - "Omitting mode.markdown.labels renders every label found in the database"
+      - "A relationship pointing to a node in an excluded label still renders as a normal Label/name link"
+      - "Unit tests cover both the filtered and unfiltered configurations"
+    completed_at: null
+
+  - id: task-009
+    title: "Implement multi-label node handling (first-label-wins)"
+    description: |
+      For nodes with multiple labels, ensure they render exactly once,
+      under a single deterministic label folder (alphabetically first, or
+      first-in-config if mode.markdown.labels defines an order), rather
+      than duplicating content across every mounted label they belong to.
+    status: pending
+    dependencies:
+      - task-008
+    acceptance_criteria:
+      - "A node with labels [Hero, Character] appears under exactly one label directory across the whole mount"
+      - "The chosen label is deterministic given the same config and graph state"
+      - "Links from other nodes to a multi-label node resolve to that same chosen Label/name path"
+      - "Unit test covers a multi-label node with both labels mounted"
+    completed_at: null
+
+  - id: task-010
+    title: "Extend listing queries with title/timestamp/description projections"
+    description: |
+      Extend src/db/queries.ts label-listing query (or add a markdown-mode
+      variant) to project, per node in one round trip, the mapped title,
+      mapped timestamp, and a truncated first-present-text-property
+      description, using COALESCE over each field's fallback property
+      list, so index/log generation needs no extra per-node queries.
+    status: pending
+    dependencies:
+      - task-006
+    acceptance_criteria:
+      - "A single query per label returns node name, mapped title, mapped timestamp, and truncated description"
+      - "COALESCE ordering in the query matches the configured fallback list order for each field"
+      - "No additional per-node query is issued when this projection is used for index/log generation"
+      - "Unit/integration test verifies the projection against nodes with different fallback properties populated"
+    completed_at: null
+
+  - id: task-011
+    title: "Generate root and per-label index.md files"
+    description: |
+      Implement generation of the virtual root /index.md (okf_version
+      frontmatter, one section per rendered label linking to each label's
+      index.md) and virtual /<Label>/index.md (bullet list of links to
+      every concept in that label with a short description when
+      derivable), using the projected data from task-010 and the
+      configured link style. Cache with the label-listing TTL.
+    status: pending
+    dependencies:
+      - task-010
+      - task-009
+    acceptance_criteria:
+      - "GET on /index.md returns frontmatter containing okf_version: \"0.1\" and links to every rendered label's index.md"
+      - "GET on /<Label>/index.md lists every concept in that label as a link, with a description when a title or text property is derivable"
+      - "Both generated files use the configured linkStyle (wikilink or markdown)"
+      - "getattr on both files reports the exact rendered byte length; both are cached and regenerate only after TTL expiry"
+      - "Unit tests cover an empty label (no nodes) rendering a valid, minimal index.md"
+    completed_at: null
+
+  - id: task-012
+    title: "Generate root log.md from mapped timestamps"
+    description: |
+      Implement generation of the virtual root /log.md: entries grouped
+      under ## YYYY-MM-DD headings, newest first, each a bullet linking to
+      the concept, built from the mapped timestamp projection (task-010)
+      across all rendered nodes. Nodes without a resolvable timestamp are
+      omitted; decide and implement the behavior for zero resolvable
+      timestamps across the whole graph (stub line vs. omission) and
+      document the choice.
+    status: pending
+    dependencies:
+      - task-010
+      - task-009
+    acceptance_criteria:
+      - "log.md groups entries by date descending, with entries within a date in a deterministic order"
+      - "Nodes lacking any resolvable timestamp are excluded from log.md without affecting other entries"
+      - "The zero-timestamps-in-graph case renders the documented fallback behavior (stub line or omission) consistently"
+      - "getattr size matches rendered content; caching follows the same TTL as index.md"
+      - "Unit tests cover multi-date grouping, ties within a date, and the zero-timestamp case"
+    completed_at: null
+
+  - id: task-013
+    title: "Resolve type-key clash and finalize frontmatter key-order edge cases"
+    description: |
+      Implement the decided rule for REQ-F-021 (a node property literally
+      named 'type' colliding with the label-derived type key) and lock in
+      the full frontmatter key-order contract (type/label-clash resolution,
+      mapped fields, remaining properties, relationship keys) with explicit
+      unit tests, since this ordering underpins the fixture round-trip test.
+    status: pending
+    dependencies:
+      - task-006
+    acceptance_criteria:
+      - "A node with an existing 'type' property renders both the label-derived value and the property value without silent data loss, per the documented resolution rule"
+      - "The chosen resolution rule is documented inline and in a unit test"
+      - "Full key-order contract (type, mapped fields, remaining alphabetical properties, relationship keys alphabetical) is covered by a dedicated ordering unit test"
+    completed_at: null
+
+  - id: task-014
+    title: "Author the 20-file Odyssey fixture vault and import.cypher"
+    description: |
+      Hand-author test/fixtures/odyssey/ with 20 markdown concept files
+      across multiple labels (e.g. Character, Place, Creature, Event)
+      exercising frontmatter properties, mapped title/timestamp/tags where
+      sensible, per-rel-type links, multi-section bodies, and at least one
+      multi-label node and one node with no text properties. Derive
+      test/fixtures/odyssey/import.cypher (constraints + node/relationship
+      creation) that reproduces the exact same graph state, plus expected
+      index.md and log.md fixtures for the whole vault.
+    status: pending
+    dependencies:
+      - task-005
+      - task-006
+      - task-011
+      - task-012
+      - task-013
+    acceptance_criteria:
+      - "test/fixtures/odyssey/ contains exactly 20 concept .md files across at least 3 labels"
+      - "import.cypher creates uniqueness constraints per label and the full node/relationship graph matching the fixtures"
+      - "Fixtures include a multi-label node case and a no-text-property node case"
+      - "Expected root index.md, at least one per-label index.md, and log.md fixtures are included and internally consistent with the concept fixtures"
+    completed_at: null
+
+  - id: task-015
+    title: "Renderer round-trip unit test against Odyssey fixtures"
+    description: |
+      Add a unit test that loads the graph state implied by
+      test/fixtures/odyssey/import.cypher (via direct data structures or a
+      lightweight fixture loader, no FUSE/mount involved), runs it through
+      the renderer and generated-file logic, normalizes trailing
+      whitespace/final newline, and asserts byte-for-byte equality against
+      every fixture file including index.md and log.md.
+    status: pending
+    dependencies:
+      - task-014
+    acceptance_criteria:
+      - "All 20 concept fixtures are reproduced exactly (after normalization) by the renderer"
+      - "Generated root index.md, per-label index.md files, and log.md fixtures are reproduced exactly"
+      - "Test fails clearly (diff output) on any frontmatter key-order or content regression"
+      - "Test runs as part of npm test with no external dependencies (no live Neo4j)"
+    completed_at: null
+
+  - id: task-016
+    title: "Docker/neo4j-cli integration test for markdown mode mount"
+    description: |
+      Using the neo4j-cli skill's ephemeral Docker container flow, add an
+      integration test (or documented manual procedure in test/manual.md
+      if full automation isn't feasible in CI) that starts a Neo4j
+      container, pipes in import.cypher, mounts LPGFS in markdown mode
+      against it, and diffs the mounted tree against
+      test/fixtures/odyssey/, including generated index.md/log.md files.
+    status: pending
+    dependencies:
+      - task-014
+      - task-011
+      - task-012
+    acceptance_criteria:
+      - "Integration test/script provisions an ephemeral Neo4j via Docker and applies import.cypher"
+      - "LPGFS mounts successfully in markdown mode against the ephemeral database"
+      - "The mounted tree, diffed against test/fixtures/odyssey/, shows zero differences (including generated files)"
+      - "Procedure is either automated (npm script) or clearly documented step-by-step in test/manual.md, with credentials sourced from integration.env if needed"
+    completed_at: null
+
+  - id: task-017
+    title: "Documentation and config sample updates"
+    description: |
+      Update README.md with a markdown-mode section (config example,
+      --mode flag, filesystem structure example including index.md/log.md,
+      link style options, field mapping) and add a sample
+      .lpgfs.yaml markdown-mode config alongside the existing docker/
+      config, mirroring the documentation depth of the existing classic
+      mode sections.
+    status: pending
+    dependencies:
+      - task-016
+    acceptance_criteria:
+      - "README.md documents --mode, mode.type, and the full mode.markdown config surface with a working example"
+      - "A sample markdown-mode .lpgfs.yaml exists and mounts successfully against the Odyssey fixture data"
+      - "Documented filesystem structure example matches actual renderer output for the sample config"
+    completed_at: null
