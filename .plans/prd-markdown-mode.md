@@ -19,10 +19,11 @@ A test dataset — an Odyssey wiki of 20 hand-authored markdown fixture files pl
 - Auto-generate OKF bundle files: root `index.md` (bundle overview, `okf_version: "0.1"`), per-label `index.md` (concept listings with short descriptions), and root `log.md` (date-grouped node updates derived from mapped timestamps).
 - Map OKF/Obsidian recommended fields — `title`, `timestamp`, `tags` — from node properties using configurable per-field fallback lists checked per node (e.g. `timestamp: [updated, lastUpdated, modified, created]`).
 - Ship a 20-file Odyssey example vault + Cypher import script and an integration test that validates byte-level (normalized) round-trip rendering using Docker + neo4j-cli.
+- Ship a standalone `npx`-invokable bulk-import CLI tool that mirrors an existing Obsidian-style markdown vault into a Neo4j graph — the inverse of the renderer — for migrating existing vaults or reconstructing graph fixtures from hand-authored markdown, validated against the Odyssey example vault.
 
 ## Non-Goals
 
-- Write support (creating/editing markdown writes back to the graph) — the filesystem stays read-only (`EROFS`).
+- Write support **through the FUSE mount** (creating/editing markdown files under the mountpoint writes back to the graph) — the mounted filesystem stays read-only (`EROFS`). This is distinct from the standalone bulk-import CLI tool below, which writes to the graph directly via the driver, entirely outside the FUSE layer, and is explicitly in scope.
 - Subgraph composition (a markdown document composed from a central node plus a rel-type traversal) — explicitly a **later phase**; the design should not preclude it.
 - Rendering relationship properties in markdown (relationship property files are dropped in this mode for v1).
 - Body link/Relations sections (frontmatter-only links in v1).
@@ -103,6 +104,17 @@ A test dataset — an Odyssey wiki of 20 hand-authored markdown fixture files pl
 - REQ-F-042: A fixture-level unit test renders each imported node through the markdown renderer (mock/db-level, no FUSE) and compares against the fixture file after normalization (trailing-whitespace/final-newline normalization; frontmatter key order must be deterministic: `type` first, then mapped fields (`title`, `timestamp`, `tags`), then remaining properties alphabetical, then relationship keys alphabetical). Fixtures for the generated `index.md` files and `log.md` are included in the round-trip comparison.
 - REQ-F-043: An integration test script (Docker-based, using neo4j-cli to run an ephemeral Neo4j container and pipe `import.cypher`) mounts the FS in markdown mode and diffs the mounted tree against `test/fixtures/odyssey/` (documented in `test/manual.md` or automated where the environment allows; credentials via `integration.env` if needed).
 
+**Bulk-import tool (vault → graph, standalone CLI)**
+
+- REQ-F-070: A new `bin` entry point (e.g. `lpgfs-import-vault`, added to `package.json`'s `bin` map so it's runnable via `npx lpgfs-import-vault` without a separate install step) walks a vault directory and mirrors it into a Neo4j graph via the driver — entirely outside the FUSE layer, no mount required.
+- REQ-F-071: Directory-to-label and filename-to-naming-property mapping is the inverse of the renderer's own layout convention (REQ-F-010): each subdirectory under the vault root becomes a label, each `<name>.md` file becomes a node with that label and its naming property set from the filename (`.md` stripped, reversing whatever sanitization was applied on render, on a best-effort basis — sanitization is lossy in general, so exact reversal is not guaranteed and is out of scope).
+- REQ-F-072: Frontmatter parsing: all keys except `type` (and `type_property`/clash-resolution keys per REQ-F-021/task-013's rule) become node properties. Per-rel-type link keys (recognized via the configured `linkStyle` — quoted wikilinks or bundle-relative markdown links) become relationships: `KNOWS: ["[[Person/Penelope]]"]` creates/merges a `KNOWS` relationship from the current node to `Person/Penelope`. `in_<TYPE>` keys (when `includeIncoming` semantics apply) create the relationship in the reverse direction. Reserved bundle files (`index.md`, `log.md`, per REQ-F-028/060/062) are skipped, not imported as nodes.
+- REQ-F-073: Body text is written back onto the **first** configured text property for that label (per `mode.markdown.textProperties`) when a node has exactly one text section; a body with multiple `## <property>` headings writes each section back onto its named property. A body with no recognizable heading and multiple configured text properties is a best-effort/ambiguous case — document the chosen fallback (e.g. write to the first configured property) rather than silently dropping content.
+- REQ-F-074: Mapped fields (`title`, `timestamp`, `tags`) round-trip as literal properties named after their canonical key (`title`, `timestamp`, `tags`) by default — the tool does not attempt to reverse-guess which original fallback property (e.g. `updated` vs. `lastUpdated`) a value came from. This is a documented, accepted round-trip limitation (see Acceptance Criteria and Open Questions).
+- REQ-F-075: Writes are idempotent: importing the same vault twice produces the same graph (`MERGE` on label + naming property, not `CREATE`), so the tool is safe to re-run.
+- REQ-F-076: The tool supports `--dry-run` (print the Cypher/summary of what would be written without executing) and standard connection flags matching the existing `lpgfs mount` conventions (`--db`, `--user`, `--password`).
+- REQ-F-077: Validated against the Odyssey example vault (`test/fixtures/odyssey/`): running the import tool against those 20 markdown files (plus `index.md`/`log.md`, which must be skipped per REQ-F-072) produces a graph equivalent to `test/fixtures/odyssey/import.cypher` — either by direct comparison (query both graphs and diff) or by re-rendering the imported graph through the existing renderer and diffing against the same fixtures (closing the full round trip: fixtures → graph → fixtures).
+
 ### Non-Functional Requirements
 
 - REQ-NF-001: `classic` mode behavior and performance are unchanged (no regression in existing tests).
@@ -139,6 +151,8 @@ A test dataset — an Odyssey wiki of 20 hand-authored markdown fixture files pl
 - [ ] `test/fixtures/odyssey/` holds 20 concept files + expected `index.md`/`log.md` files + `import.cypher`; the renderer round-trip unit test reproduces all fixtures (normalized).
 - [ ] Integration path documented/automated: ephemeral Neo4j via neo4j-cli Docker, import script applied, mounted tree diffs clean against fixtures.
 - [ ] Unit tests cover: config parsing of the `mode` section, markdown path parsing, frontmatter serialization edge cases (special chars, temporal values, list properties, `type` property clash), sanitization of Obsidian-illegal characters, reserved-filename avoidance (`index`/`log`), empty-body nodes, incoming-links option, both link styles, field-mapping fallback order (e.g. node with `updated` vs node with only `lastUpdated`), scalar→list tags coercion, index/log generation edge cases (empty label, no timestamps anywhere).
+- [ ] `npx lpgfs-import-vault <vaultDir> --db ... --user ... --password ...` mirrors a markdown vault into a Neo4j graph (labels from directories, naming property from filenames, properties + relationships from frontmatter, body text from configured text properties), skips reserved `index.md`/`log.md` files, is idempotent (`MERGE`, safe to re-run), and supports `--dry-run`.
+- [ ] Running the import tool against `test/fixtures/odyssey/` produces a graph that, when re-rendered through the existing renderer, reproduces the same fixtures (closing the fixtures → graph → fixtures round trip), modulo the documented `title`/`timestamp`/`tags` canonical-key round-trip limitation (REQ-F-074).
 
 ## Future Extensions (design for, don't build)
 
@@ -175,7 +189,9 @@ A test dataset — an Odyssey wiki of 20 hand-authored markdown fixture files pl
 
 ## Out of Scope
 
-- Write-back of markdown edits to the graph.
+- Write-back of markdown edits to the graph **through the mounted filesystem** (FUSE writes remain `EROFS`). The standalone bulk-import CLI (REQ-F-070–077) is a separate, explicitly in-scope tool that writes to the graph directly via the driver.
+- Live/watched sync (the import tool is a one-shot bulk operation, not a file-watcher keeping the graph continuously in sync with vault edits).
+- Exact sanitization reversal on import (best-effort filename→property-name mapping only, per REQ-F-071).
 - Subgraph/document composition (central node + rel-type traversal into one file or folder structure) — planned follow-up.
 - Relationship property rendering in markdown mode.
 - Generated `.obsidian/` vault configuration, Dataview/plugin-specific metadata.
@@ -190,3 +206,4 @@ A test dataset — an Odyssey wiki of 20 hand-authored markdown fixture files pl
 - Root `index.md` frontmatter: OKF says the root index is the only index allowed frontmatter (`okf_version`) — does it also need/permit `type`? Verify against the spec text during implementation; lean minimal (`okf_version` only).
 - `log.md` with zero resolvable timestamps: omit the file or render a stub line? Pick one and test it.
 - Should `tags` additionally include the node's extra labels (beyond the folder label)? Deferred to keep the mapping purely property-driven in v1; noted as a natural extension.
+- Import tool round-trip fidelity: writing mapped fields back under their canonical key (`title`/`timestamp`/`tags`) rather than the original source property (REQ-F-074) means a re-rendered node may have a different frontmatter key than the original hand-authored fixture used (e.g. `timestamp` instead of `lastUpdated`). Acceptable for v1 — flag if the Odyssey round-trip test (REQ-F-077) makes this too lossy to validate meaningfully, in which case consider an optional `--preserve-source-keys` mode that records the original property name in a small sidecar/comment convention.

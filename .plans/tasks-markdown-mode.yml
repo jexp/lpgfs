@@ -329,6 +329,38 @@ tasks:
       - "Test runs as part of npm test with no external dependencies (no live Neo4j)"
     completed_at: null
 
+  - id: task-020
+    title: "Build npx bulk-import CLI: mirror an Obsidian vault into the graph"
+    description: |
+      Add a new bin entry point (e.g. lpgfs-import-vault) per REQ-F-070
+      through REQ-F-077 that walks a markdown vault directory and mirrors
+      it into a Neo4j graph via the driver, entirely outside the FUSE
+      layer — the inverse of the renderer. Subdirectories become labels;
+      <name>.md files become nodes with their naming property set from the
+      filename; frontmatter keys (minus type/type_property/clash keys)
+      become properties; per-rel-type link keys (wikilink or markdown
+      style, matching the configured linkStyle) become relationships;
+      body text (single section or ## heading-delimited sections) writes
+      back onto the configured text properties. Mapped fields (title/
+      timestamp/tags) round-trip under their canonical key names, not the
+      original source property — a documented limitation. Reserved
+      index.md/log.md files are skipped. Writes use MERGE (idempotent,
+      safe to re-run) and the tool supports --dry-run plus the same
+      --db/--user/--password connection flags as `lpgfs mount`.
+    status: pending
+    dependencies:
+      - task-006
+      - task-014
+    acceptance_criteria:
+      - "npx lpgfs-import-vault <vaultDir> --db ... --user ... --password ... connects and writes to a real Neo4j instance"
+      - "Directory-to-label and filename-to-naming-property mapping matches REQ-F-071; frontmatter link keys under both linkStyle conventions (wikilink and markdown) are parsed into relationships correctly"
+      - "index.md and log.md in the vault root and per-label directories are skipped, not imported as nodes"
+      - "Running the tool twice against the same vault produces an identical graph (idempotent via MERGE, no duplicate nodes/relationships)"
+      - "--dry-run prints the intended writes without executing them against the database"
+      - "Running the tool against test/fixtures/odyssey/ and re-rendering the resulting graph through the existing renderer reproduces the fixture content, modulo the documented title/timestamp/tags canonical-key round-trip limitation"
+      - "Unit tests cover vault-tree parsing (directory/file walking, frontmatter/body extraction) without a live DB; an integration test (Docker via neo4j-cli) verifies the actual writes against a real Neo4j instance"
+    completed_at: null
+
   - id: task-016
     title: "Docker/neo4j-cli integration test for markdown mode mount"
     description: |
@@ -358,14 +390,18 @@ tasks:
       link style options, field mapping) and add a sample
       .lpgfs.yaml markdown-mode config alongside the existing docker/
       config, mirroring the documentation depth of the existing classic
-      mode sections.
+      mode sections. Also document the lpgfs-import-vault bulk-import CLI
+      (task-020): usage, connection flags, --dry-run, idempotency, and the
+      canonical-key round-trip limitation for title/timestamp/tags.
     status: pending
     dependencies:
       - task-016
+      - task-020
     acceptance_criteria:
       - "README.md documents --mode, mode.type, and the full mode.markdown config surface with a working example"
       - "A sample markdown-mode .lpgfs.yaml exists and mounts successfully against the Odyssey fixture data"
       - "Documented filesystem structure example matches actual renderer output for the sample config"
+      - "README.md documents lpgfs-import-vault usage (npx invocation, flags, idempotency, dry-run, and the title/timestamp/tags round-trip limitation)"
     completed_at: null
 
   - id: task-019
