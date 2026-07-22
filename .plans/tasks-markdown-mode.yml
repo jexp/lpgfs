@@ -297,7 +297,7 @@ tasks:
       test/fixtures/odyssey/import.cypher (constraints + node/relationship
       creation) that reproduces the exact same graph state, plus expected
       index.md and log.md fixtures for the whole vault.
-    status: pending
+    status: completed
     dependencies:
       - task-005
       - task-006
@@ -309,7 +309,7 @@ tasks:
       - "import.cypher creates uniqueness constraints per label and the full node/relationship graph matching the fixtures"
       - "Fixtures include a multi-label node case and a no-text-property node case"
       - "Expected root index.md, at least one per-label index.md, and log.md fixtures are included and internally consistent with the concept fixtures"
-    completed_at: null
+    completed_at: "2026-07-22T23:25:30Z"
 
   - id: task-015
     title: "Renderer round-trip unit test against Odyssey fixtures"
