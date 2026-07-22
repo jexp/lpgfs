@@ -59,6 +59,32 @@ export interface PathContext {
   isConfigFile?: boolean;
 }
 
+/**
+ * The type of markdown-mode filesystem path being accessed.
+ */
+export type MarkdownPathType =
+  | 'root'
+  | 'root-index'
+  | 'root-log'
+  | 'label'
+  | 'label-index'
+  | 'node';
+
+/**
+ * Context object resulting from parsing a markdown-mode filesystem path.
+ * A label literally named "index.md" or "log.md" is unreachable as a
+ * 'label' context — those two path segments always resolve to the
+ * generated root-index/root-log variants instead.
+ */
+export interface MarkdownPathContext {
+  /** The type of path being accessed */
+  type: MarkdownPathType;
+  /** Node label (e.g., "Character") */
+  label?: string;
+  /** Node display name with the .md extension already stripped */
+  nodeName?: string;
+}
+
 // =============================================================================
 // Configuration Types (Section 5.3)
 // =============================================================================
