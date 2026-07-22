@@ -157,19 +157,19 @@ tasks:
       elementId (reused between getattr size computation and read), and
       EROFS for all write operations. Follow the existing
       try-catch-wrapped callback pattern noted in AGENTS.md.
-    status: pending
     dependencies:
       - task-004
       - task-005
       - task-006
       - task-018
     acceptance_criteria:
-      - "readdir on root lists one entry per rendered label plus index.md and log.md"
+      - "readdir on root lists one entry per rendered label (index.md/log.md/config-file listing deferred to task-019, since generating them depends on task-011/task-012)"
       - "getattr on a node's .md file reports size equal to the exact rendered byte length"
       - "read on a node's .md file returns the same content used to compute its getattr size, without re-rendering twice"
       - "All write FUSE operations continue returning EROFS in markdown mode"
       - "Handler unit tests cover classic mode being unaffected and markdown mode's readdir/getattr/read/write paths"
-    completed_at: null
+    status: completed
+    completed_at: "2026-07-22T22:15:00Z"
 
   - id: task-008
     title: "Apply mode.markdown.labels filtering across listing and rendering"
@@ -366,4 +366,31 @@ tasks:
       - "README.md documents --mode, mode.type, and the full mode.markdown config surface with a working example"
       - "A sample markdown-mode .lpgfs.yaml exists and mounts successfully against the Odyssey fixture data"
       - "Documented filesystem structure example matches actual renderer output for the sample config"
+    completed_at: null
+
+  - id: task-019
+    title: "Wire generated index.md/log.md/config-file listing into markdown-mode readdir"
+    description: |
+      task-007 scoped root readdir in markdown mode down to label
+      directories only, omitting /index.md, /log.md, and the classic
+      /.lpgfs.yaml config-file entry, because generating index.md/log.md
+      content depends on task-011/task-012 (not yet implemented when
+      task-007 landed) and parseMarkdownPath has no PathContext handling
+      for the config file path. Once task-011 (root/per-label index.md
+      generation) and task-012 (log.md generation) land, extend
+      readdirMarkdownRoot in src/fuse/handlers.ts to include index.md and
+      log.md entries (and, separately, decide/implement how the
+      config-file entry should surface in markdown mode, e.g. extending
+      parseMarkdownPath or special-casing it in readdirMarkdown), and wire
+      getattrMarkdown/readMarkdown's currently-ENOENT root-index/root-log/
+      label-index cases to the generators from task-011/012.
+    status: pending
+    dependencies:
+      - task-011
+      - task-012
+    acceptance_criteria:
+      - "readdir on root lists index.md and log.md alongside label directories in markdown mode"
+      - "getattr/read on /index.md, /log.md, and /<Label>/index.md return the task-011/012 generated content with correct sizes"
+      - "The config-file entry's presence (or documented absence) in markdown-mode root readdir is decided and tested"
+      - "Existing task-007 handler unit/integration tests continue to pass unchanged"
     completed_at: null

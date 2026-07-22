@@ -28,7 +28,13 @@ import {
 } from './handlers.js';
 import type { HandlerContext } from './handlers.js';
 import type { DatabaseConnection } from '../db/connection.js';
-import { DEFAULT_CONFIG, LpgfsError, POSIX_ERRORS } from '../types/index.js';
+import {
+  DEFAULT_CONFIG,
+  DEFAULT_MARKDOWN_MODE_CONFIG,
+  LpgfsError,
+  POSIX_ERRORS,
+  type ConfigSchema,
+} from '../types/index.js';
 import { Cache } from '../cache/index.js';
 import { CONFIG_FILENAME, PROPERTIES_FILENAME } from '../core/path-parser.js';
 
@@ -153,6 +159,86 @@ function createMockDbWithNodes(
     close: vi.fn().mockResolvedValue(undefined),
     connect: vi.fn().mockResolvedValue(undefined),
   } as unknown as DatabaseConnection;
+}
+
+/** A single raw relationship row shape expected by getNodeForMarkdown's mock query result. */
+interface MockMarkdownRow {
+  relType: string;
+  targetLabels: string[];
+  targetElementId: string;
+  targetProperties: Record<string, unknown>;
+}
+
+/** Per-node data returned by the mocked getNodeForMarkdown query, keyed by elementId. */
+interface MockMarkdownNode {
+  labels: string[];
+  properties: Record<string, unknown>;
+  outRows?: MockMarkdownRow[];
+  inRows?: MockMarkdownRow[];
+}
+
+/**
+ * Mock database connection for markdown-mode handler tests: serves
+ * db.labels(), the label-scoped node listing query, and getNodeForMarkdown's
+ * single-round-trip CYPHER 25 query.
+ */
+function createMockDbMarkdown(
+  labels: string[],
+  nodesByLabel: Record<string, MockNode[]> = {},
+  markdownByElementId: Record<string, MockMarkdownNode> = {}
+): DatabaseConnection {
+  return {
+    executeQuery: vi.fn().mockImplementation((query: string, params?: Record<string, unknown>) => {
+      if (query.includes('db.labels()')) {
+        return Promise.resolve({ records: labels.map((label) => ({ label })) });
+      }
+
+      if (query.includes('outRows') && params?.elementId) {
+        const node = markdownByElementId[params.elementId as string];
+        if (!node) {
+          return Promise.resolve({ records: [] });
+        }
+        return Promise.resolve({
+          records: [
+            {
+              properties: node.properties,
+              labels: node.labels,
+              outRows: node.outRows ?? [],
+              inRows: node.inRows ?? [],
+            },
+          ],
+        });
+      }
+
+      const labelMatch = query.match(/MATCH \(n:`(\w+)`\)/);
+      if (labelMatch) {
+        const label = labelMatch[1]!;
+        const nodes = nodesByLabel[label] || [];
+        return Promise.resolve({
+          records: nodes.map((n) => ({ elementId: n.elementId, properties: n.properties })),
+        });
+      }
+
+      return Promise.resolve({ records: [] });
+    }),
+    isConnected: vi.fn().mockReturnValue(true),
+    close: vi.fn().mockResolvedValue(undefined),
+    connect: vi.fn().mockResolvedValue(undefined),
+  } as unknown as DatabaseConnection;
+}
+
+function markdownConfig(overrides: Partial<ConfigSchema['mode']['markdown']> = {}): ConfigSchema {
+  return {
+    ...DEFAULT_CONFIG,
+    naming: {
+      default: 'elementId',
+      overrides: { nodes: { Character: { property: 'name' } } },
+    },
+    mode: {
+      type: 'markdown',
+      markdown: { ...DEFAULT_MARKDOWN_MODE_CONFIG, ...overrides },
+    },
+  };
 }
 
 describe('createHandlerContext', () => {
@@ -2581,6 +2667,218 @@ describe('write operations (EROFS)', () => {
           expect((err as LpgfsError).message).toBe('LPGFS is read-only');
         }
       }
+    });
+  });
+});
+
+describe('markdown mode', () => {
+  function createCtx(config: ConfigSchema, db: DatabaseConnection): HandlerContext {
+    return createHandlerContext(db, { config, cache: new Cache() });
+  }
+
+  describe('readdir', () => {
+    it('lists one directory entry per rendered label at root', async () => {
+      const db = createMockDbMarkdown(['Character', 'Place']);
+      const ctx = createCtx(markdownConfig(), db);
+
+      const entries = await readdir('/', ctx);
+
+      expect(entries).toEqual([
+        { name: 'Character', type: 'directory' },
+        { name: 'Place', type: 'directory' },
+      ]);
+    });
+
+    it('respects mode.markdown.labels as an allow-list at root', async () => {
+      const db = createMockDbMarkdown(['Character', 'Place', 'Creature']);
+      const ctx = createCtx(markdownConfig({ labels: ['Character'] }), db);
+
+      const entries = await readdir('/', ctx);
+
+      expect(entries).toEqual([{ name: 'Character', type: 'directory' }]);
+    });
+
+    it('lists node files with a .md extension under a label', async () => {
+      const db = createMockDbMarkdown(['Character'], {
+        Character: [
+          { elementId: '4:a:0', properties: { name: 'odysseus' } },
+          { elementId: '4:a:1', properties: { name: 'penelope' } },
+        ],
+      });
+      const ctx = createCtx(markdownConfig(), db);
+
+      const entries = await readdir('/Character', ctx);
+
+      expect(entries).toEqual([
+        { name: 'odysseus.md', type: 'file' },
+        { name: 'penelope.md', type: 'file' },
+      ]);
+    });
+
+    it('rejects a label directory excluded by mode.markdown.labels with ENOENT', async () => {
+      const db = createMockDbMarkdown(['Character', 'Place']);
+      const ctx = createCtx(markdownConfig({ labels: ['Character'] }), db);
+
+      await expect(readdir('/Place', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('rejects paths deeper than a node file with ENOENT', async () => {
+      const db = createMockDbMarkdown(['Character']);
+      const ctx = createCtx(markdownConfig(), db);
+
+      await expect(readdir('/Character/odysseus.md/extra', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+  });
+
+  describe('getattr and read', () => {
+    it('reports getattr size equal to the exact rendered byte length, and read returns matching content', async () => {
+      const db = createMockDbMarkdown(
+        ['Character'],
+        { Character: [{ elementId: '4:a:0', properties: { name: 'odysseus', summary: 'A king of Ithaca.' } }] },
+        {
+          '4:a:0': {
+            labels: ['Character'],
+            properties: { name: 'odysseus', summary: 'A king of Ithaca.' },
+            outRows: [
+              {
+                relType: 'KNOWS',
+                targetLabels: ['Character'],
+                targetElementId: '4:a:1',
+                targetProperties: { name: 'penelope' },
+              },
+            ],
+          },
+        }
+      );
+      const ctx = createCtx(markdownConfig(), db);
+
+      const stat = await getattr('/Character/odysseus.md', ctx);
+      expect(stat.type).toBe('file');
+      expect(stat.size).toBeGreaterThan(0);
+
+      const result = await read('/Character/odysseus.md', ctx);
+
+      expect(Buffer.byteLength(result.content, 'utf8')).toBe(stat.size);
+      expect(result.size).toBe(stat.size);
+      expect(result.content).toContain('type: Character');
+      expect(result.content).toContain('A king of Ithaca.');
+      expect(result.content).toContain('[[Character/penelope]]');
+    });
+
+    it('serves read from the cache populated by getattr without re-rendering', async () => {
+      const db = createMockDbMarkdown(
+        ['Character'],
+        { Character: [{ elementId: '4:a:0', properties: { name: 'odysseus' } }] },
+        { '4:a:0': { labels: ['Character'], properties: { name: 'odysseus' } } }
+      );
+      const ctx = createCtx(markdownConfig(), db);
+
+      await getattr('/Character/odysseus.md', ctx);
+      const callsAfterGetattr = (db.executeQuery as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      const result = await read('/Character/odysseus.md', ctx);
+      const callsAfterRead = (db.executeQuery as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      expect(callsAfterRead).toBe(callsAfterGetattr);
+      expect(result.content).toContain('type: Character');
+    });
+
+    it('getattr on a label directory reports type directory', async () => {
+      const db = createMockDbMarkdown(['Character']);
+      const ctx = createCtx(markdownConfig(), db);
+
+      const stat = await getattr('/Character', ctx);
+      expect(stat.type).toBe('directory');
+    });
+
+    it('getattr on root reports type directory', async () => {
+      const db = createMockDbMarkdown(['Character']);
+      const ctx = createCtx(markdownConfig(), db);
+
+      const stat = await getattr('/', ctx);
+      expect(stat.type).toBe('directory');
+    });
+
+    it('getattr for an unknown node throws ENOENT', async () => {
+      const db = createMockDbMarkdown(['Character'], { Character: [] });
+      const ctx = createCtx(markdownConfig(), db);
+
+      await expect(getattr('/Character/nobody.md', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('read for a label directory (not a node file) throws ENOENT', async () => {
+      const db = createMockDbMarkdown(['Character']);
+      const ctx = createCtx(markdownConfig(), db);
+
+      await expect(read('/Character', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('supports offset/length slicing of rendered content, matching the classic read contract', async () => {
+      const db = createMockDbMarkdown(
+        ['Character'],
+        { Character: [{ elementId: '4:a:0', properties: { name: 'odysseus' } }] },
+        { '4:a:0': { labels: ['Character'], properties: { name: 'odysseus' } } }
+      );
+      const ctx = createCtx(markdownConfig(), db);
+
+      const full = await read('/Character/odysseus.md', ctx);
+      const partial = await read('/Character/odysseus.md', ctx, 0, 3);
+
+      expect(partial.size).toBe(full.size);
+      expect(partial.content).toBe(full.content.slice(0, 3));
+    });
+  });
+
+  describe('write operations remain EROFS in markdown mode', () => {
+    it('write, create, unlink, mkdir, rmdir, rename, truncate, and chmod all throw EROFS', () => {
+      const ctx = createCtx(markdownConfig(), createMockDbMarkdown(['Character']));
+
+      expect(() => write('/Character/odysseus.md', Buffer.from('x'), 0, ctx)).toThrow(
+        expect.objectContaining({ code: POSIX_ERRORS.EROFS })
+      );
+      expect(() => create('/Character/new.md', 0o644, ctx)).toThrow(
+        expect.objectContaining({ code: POSIX_ERRORS.EROFS })
+      );
+      expect(() => unlink('/Character/odysseus.md', ctx)).toThrow(
+        expect.objectContaining({ code: POSIX_ERRORS.EROFS })
+      );
+      expect(() => mkdir('/NewLabel', 0o755, ctx)).toThrow(
+        expect.objectContaining({ code: POSIX_ERRORS.EROFS })
+      );
+      expect(() => rmdir('/Character', ctx)).toThrow(
+        expect.objectContaining({ code: POSIX_ERRORS.EROFS })
+      );
+      expect(() => rename('/Character/odysseus.md', '/Character/renamed.md', ctx)).toThrow(
+        expect.objectContaining({ code: POSIX_ERRORS.EROFS })
+      );
+      expect(() => truncate('/Character/odysseus.md', 0, ctx)).toThrow(
+        expect.objectContaining({ code: POSIX_ERRORS.EROFS })
+      );
+      expect(() => chmod('/Character/odysseus.md', 0o644, ctx)).toThrow(
+        expect.objectContaining({ code: POSIX_ERRORS.EROFS })
+      );
+    });
+  });
+
+  describe('classic mode is unaffected', () => {
+    it('readdir on root still uses the classic path parser when mode.type is classic', async () => {
+      const db = createMockDbWithNodes(['Person']);
+      const ctx = createHandlerContext(db, { config: DEFAULT_CONFIG, cache: new Cache() });
+
+      const entries = await readdir('/', ctx);
+
+      expect(entries).toEqual([
+        { name: 'Person', type: 'directory' },
+        { name: CONFIG_FILENAME, type: 'file' },
+      ]);
     });
   });
 });

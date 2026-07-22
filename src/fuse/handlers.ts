@@ -9,10 +9,16 @@ import type { DatabaseConnection } from "../db/connection.js";
 import type {
   ConfigSchema,
   DirectoryEntry,
+  MarkdownPathContext,
   StatResult,
 } from "../types/index.js";
-import { DEFAULT_CONFIG, POSIX_ERRORS, LpgfsError } from "../types/index.js";
-import { Cache } from "../cache/index.js";
+import {
+  DEFAULT_CONFIG,
+  DEFAULT_MARKDOWN_MODE_CONFIG,
+  POSIX_ERRORS,
+  LpgfsError,
+} from "../types/index.js";
+import { Cache, cacheKey } from "../cache/index.js";
 import {
   getLabels,
   getNodesByLabel,
@@ -20,6 +26,8 @@ import {
   getRelationships,
   getNodeProperties,
   getRelationshipProperties,
+  getNodeForMarkdown,
+  groupRelationshipsForMarkdown,
 } from "../db/queries.js";
 import {
   parsePath,
@@ -27,9 +35,15 @@ import {
   PROPERTIES_FILENAME,
   extractTargetFromRelPropertiesFilename,
 } from "../core/path-parser.js";
+import { parseMarkdownPath } from "../core/markdown-path-parser.js";
 import type { Direction } from "../types/index.js";
 import { ConfigParser } from "../config/parser.js";
 import { Logger, createLogger } from "../core/logger.js";
+import {
+  renderNodeMarkdown,
+  type MarkdownRelationshipLink,
+} from "../markdown/renderer.js";
+import { propertyFallbackFieldResolver } from "../markdown/fields.js";
 
 /**
  * Context for FUSE handlers containing shared resources.
@@ -92,12 +106,18 @@ export async function readdir(
   path: string,
   ctx: HandlerContext,
 ): Promise<DirectoryEntry[]> {
-  const pathContext = parsePath(path);
   const timer = ctx.logger.time();
 
-  ctx.logger.debug(`readdir: ${path}`, { type: pathContext.type });
-
   try {
+    if (ctx.config.mode.type === "markdown") {
+      const result = await readdirMarkdown(path, ctx);
+      timer.end(`readdir: ${path}`, { entries: result.length });
+      return result;
+    }
+
+    const pathContext = parsePath(path);
+    ctx.logger.debug(`readdir: ${path}`, { type: pathContext.type });
+
     let result: DirectoryEntry[];
 
     switch (pathContext.type) {
@@ -383,6 +403,231 @@ async function readdirDirection(
   return entries;
 }
 
+// =============================================================================
+// Markdown Mode Handlers
+//
+// Active when ctx.config.mode.type === 'markdown'. Dispatches via
+// parseMarkdownPath instead of the classic path-parser. Generated files
+// (/index.md, /log.md, /<Label>/index.md) are not yet implemented, so
+// their path-context types (root-index/root-log/label-index) always
+// throw ENOENT here for now.
+// =============================================================================
+
+/**
+ * Validates that a label exists in the database and, if
+ * `mode.markdown.labels` is set, that it is included in the allow-list.
+ * Throws LpgfsError(ENOENT) otherwise.
+ */
+async function assertLabelAllowed(
+  label: string,
+  ctx: HandlerContext,
+): Promise<void> {
+  const labels = await getLabels(ctx.db, ctx.cache);
+  if (!labels.includes(label)) {
+    throw new LpgfsError(`Label not found: ${label}`, POSIX_ERRORS.ENOENT);
+  }
+
+  const allowList = ctx.config.mode.markdown?.labels;
+  if (allowList && allowList.length > 0 && !allowList.includes(label)) {
+    throw new LpgfsError(`Label not found: ${label}`, POSIX_ERRORS.ENOENT);
+  }
+}
+
+/**
+ * Root directory listing for markdown mode: one directory per rendered
+ * label (respecting mode.markdown.labels when set).
+ */
+async function readdirMarkdownRoot(
+  ctx: HandlerContext,
+): Promise<DirectoryEntry[]> {
+  const labels = await getLabels(ctx.db, ctx.cache);
+  const allowList = ctx.config.mode.markdown?.labels;
+  const rendered =
+    allowList && allowList.length > 0
+      ? labels.filter((label) => allowList.includes(label))
+      : labels;
+
+  return rendered.map((label) => ({ name: label, type: "directory" }));
+}
+
+/**
+ * Label directory listing for markdown mode: one `<name>.md` file per node.
+ */
+async function readdirMarkdownLabel(
+  label: string,
+  ctx: HandlerContext,
+): Promise<DirectoryEntry[]> {
+  await assertLabelAllowed(label, ctx);
+  const nodes = await getNodesByLabel(ctx.db, label, ctx.config, ctx.cache);
+  return nodes.map((node) => ({ name: `${node.name}.md`, type: "file" }));
+}
+
+/**
+ * Markdown-mode readdir dispatch.
+ */
+async function readdirMarkdown(
+  path: string,
+  ctx: HandlerContext,
+): Promise<DirectoryEntry[]> {
+  const pathContext = parseMarkdownPath(path);
+  ctx.logger.debug(`readdir(markdown): ${path}`, {
+    type: pathContext.type,
+  });
+
+  switch (pathContext.type) {
+    case "root":
+      return readdirMarkdownRoot(ctx);
+    case "label":
+      return readdirMarkdownLabel(pathContext.label!, ctx);
+    default:
+      throw new LpgfsError(`Not a directory: ${path}`, POSIX_ERRORS.ENOENT);
+  }
+}
+
+/**
+ * Renders (and caches, keyed by node elementId) a single node's markdown
+ * file. Shared by getattrMarkdown (for the size) and readMarkdown (which
+ * relies on this hitting the cache set up by the preceding getattr call,
+ * so the node is never rendered twice for one open/read cycle).
+ */
+async function renderMarkdownNode(
+  label: string,
+  nodeName: string,
+  ctx: HandlerContext,
+): Promise<string> {
+  await assertLabelAllowed(label, ctx);
+
+  const nodes = await getNodesByLabel(ctx.db, label, ctx.config, ctx.cache);
+  const node = nodes.find((n) => n.name === nodeName);
+  if (!node) {
+    throw new LpgfsError(
+      `Node not found: ${label}/${nodeName}`,
+      POSIX_ERRORS.ENOENT,
+    );
+  }
+
+  const key = cacheKey.markdown(node.elementId);
+  const cached = ctx.cache.get<string>(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const nodeData = await getNodeForMarkdown(ctx.db, node.elementId, ctx.cache);
+  if (!nodeData) {
+    throw new LpgfsError(
+      `Node not found: ${label}/${nodeName}`,
+      POSIX_ERRORS.ENOENT,
+    );
+  }
+
+  const markdownConfig =
+    ctx.config.mode.markdown ?? DEFAULT_MARKDOWN_MODE_CONFIG;
+  const groups = groupRelationshipsForMarkdown(nodeData.relationships, ctx.config);
+  const relationships: MarkdownRelationshipLink[] = groups.flatMap(
+    (group) => group.links,
+  );
+
+  const content = renderNodeMarkdown({
+    labels: nodeData.labels,
+    properties: nodeData.properties,
+    relationships,
+    config: markdownConfig,
+    fieldResolver: propertyFallbackFieldResolver,
+  });
+
+  ctx.cache.set(key, content);
+  return content;
+}
+
+/**
+ * Markdown-mode getattr dispatch.
+ */
+async function getattrMarkdown(
+  path: string,
+  ctx: HandlerContext,
+): Promise<StatResult> {
+  const pathContext = parseMarkdownPath(path);
+  const now = new Date();
+
+  switch (pathContext.type) {
+    case "root":
+      return { type: "directory", mtime: now, atime: now, ctime: now };
+
+    case "label":
+      await assertLabelAllowed(pathContext.label!, ctx);
+      return { type: "directory", mtime: now, atime: now, ctime: now };
+
+    case "node": {
+      const content = await renderMarkdownNode(
+        pathContext.label!,
+        pathContext.nodeName!,
+        ctx,
+      );
+      return {
+        type: "file",
+        size: Buffer.byteLength(content, "utf8"),
+        mtime: now,
+        atime: now,
+        ctime: now,
+      };
+    }
+
+    default:
+      throw new LpgfsError(
+        `Not implemented in markdown mode: ${path}`,
+        POSIX_ERRORS.ENOENT,
+      );
+  }
+}
+
+/**
+ * Applies a read offset/length window to already-rendered content,
+ * mirroring the classic read() slicing behavior.
+ */
+function sliceMarkdownContent(
+  content: string,
+  offset: number,
+  length?: number,
+): ReadResult {
+  const totalSize = Buffer.byteLength(content, "utf8");
+
+  if (offset <= 0 && length === undefined) {
+    return { content, size: totalSize };
+  }
+
+  const contentBuffer = Buffer.from(content, "utf8");
+  const end =
+    length !== undefined ? Math.min(offset + length, totalSize) : totalSize;
+  const sliced = contentBuffer.subarray(offset, end);
+
+  return { content: sliced.toString("utf8"), size: totalSize };
+}
+
+/**
+ * Markdown-mode read dispatch. Only `/<Label>/<name>.md` node files are
+ * readable; root/label directories and the not-yet-implemented generated
+ * files (root-index/root-log/label-index) are rejected with ENOENT.
+ */
+async function readMarkdown(
+  path: string,
+  ctx: HandlerContext,
+  offset: number,
+  length: number | undefined,
+): Promise<ReadResult> {
+  const pathContext: MarkdownPathContext = parseMarkdownPath(path);
+
+  if (pathContext.type !== "node") {
+    throw new LpgfsError(`Not a file: ${path}`, POSIX_ERRORS.ENOENT);
+  }
+
+  const content = await renderMarkdownNode(
+    pathContext.label!,
+    pathContext.nodeName!,
+    ctx,
+  );
+  return sliceMarkdownContent(content, offset, length);
+}
+
 /**
  * Get the configuration file content as YAML.
  *
@@ -427,12 +672,18 @@ export async function getattr(
   path: string,
   ctx: HandlerContext,
 ): Promise<StatResult> {
-  const pathContext = parsePath(path);
   const timer = ctx.logger.time();
 
-  ctx.logger.debug(`getattr: ${path}`, { type: pathContext.type });
-
   try {
+    if (ctx.config.mode.type === "markdown") {
+      const result = await getattrMarkdown(path, ctx);
+      timer.end(`getattr: ${path}`, { type: result.type });
+      return result;
+    }
+
+    const pathContext = parsePath(path);
+    ctx.logger.debug(`getattr: ${path}`, { type: pathContext.type });
+
     const now = new Date();
     let result: StatResult;
 
@@ -949,12 +1200,25 @@ export async function read(
   offset: number = 0,
   length?: number,
 ): Promise<ReadResult> {
-  const pathContext = parsePath(path);
   const timer = ctx.logger.time();
 
-  ctx.logger.debug(`read: ${path}`, { offset, length, type: pathContext.type });
-
   try {
+    if (ctx.config.mode.type === "markdown") {
+      const result = await readMarkdown(path, ctx, offset, length);
+      timer.end(`read: ${path}`, {
+        size: result.size,
+        returned: result.content.length,
+      });
+      return result;
+    }
+
+    const pathContext = parsePath(path);
+    ctx.logger.debug(`read: ${path}`, {
+      offset,
+      length,
+      type: pathContext.type,
+    });
+
     // Only property files can be read
     if (pathContext.type !== "properties") {
       throw new LpgfsError(`Not a file: ${path}`, POSIX_ERRORS.ENOENT);

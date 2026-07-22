@@ -365,7 +365,8 @@ export type CacheKeyPrefix =
   | 'nodes'
   | 'props'
   | 'rels'
-  | 'reltypes';
+  | 'reltypes'
+  | 'markdown';
 
 /**
  * Cache entry metadata.
