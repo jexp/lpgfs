@@ -348,4 +348,44 @@ describe('listNodesForMarkdownIndex', () => {
     expect(underHero).toHaveLength(1);
     expect(underCharacter).toHaveLength(0);
   });
+
+  it('resolves collisions over the unfiltered same-label result before applying the chosen-label filter (matches readdirMarkdownLabel/getNodesByLabel ordering)', async () => {
+    // A multi-label node (chosen label 'Character', alphabetically first)
+    // and a single-label 'Hero' node share a base name. Collision
+    // resolution must run BEFORE the chosen-label filter, so the
+    // multi-label node still consumes the base name here even though it's
+    // filtered out of the 'Hero' listing — exactly mirroring what
+    // getNodesByLabel/readdirMarkdownLabel see, so the on-disk filename
+    // and the index.md link agree.
+    const db = mockDb([
+      {
+        elementId: '4:a:14',
+        properties: { name: 'odysseus' },
+        labels: ['Hero', 'Character'],
+        title: null,
+        timestamp: null,
+        rawDescription: null,
+      },
+      {
+        elementId: '4:a:15',
+        properties: { name: 'odysseus' },
+        labels: ['Hero'],
+        title: null,
+        timestamp: null,
+        rawDescription: null,
+      },
+    ]);
+    const cfg = config({
+      naming: { default: 'elementId', overrides: { nodes: { Hero: { property: 'name' } } } },
+    });
+
+    const results = await listNodesForMarkdownIndex(db, 'Hero', fieldsConfig(), textPropertiesConfig(), cfg);
+
+    // Only the single-label node is listed under 'Hero', but its name
+    // must carry the collision suffix caused by the (filtered-out)
+    // multi-label node that came first in query order.
+    expect(results).toHaveLength(1);
+    expect(results[0]!.name).not.toBe('odysseus');
+    expect(results[0]!.elementId).toBe('4:a:15');
+  });
 });

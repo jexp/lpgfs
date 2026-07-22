@@ -52,6 +52,10 @@ export type CacheKeyBuilder = {
   markdownIndex: (label: string) => string;
   /** Build a key for a node's rendered markdown (markdown mode) */
   markdown: (elementId: string) => string;
+  /** Build a key for the rendered virtual root /index.md content */
+  markdownRootIndex: () => string;
+  /** Build a key for a rendered virtual /<Label>/index.md content */
+  markdownLabelIndex: (label: string) => string;
 };
 
 /**
@@ -68,6 +72,11 @@ export const cacheKey: CacheKeyBuilder = {
   // TTL bucket per REQ-F-063, without needing a CacheKeyPrefix change.
   markdownIndex: (label: string) => `nodes:mdindex:${label}`,
   markdown: (elementId: string) => `markdown:${elementId}`,
+  // Rendered index.md content, distinct from markdownIndex's raw
+  // title/timestamp/description projection above; still "nodes:"-prefixed
+  // for the same label-listing TTL bucket per REQ-F-063.
+  markdownRootIndex: () => 'nodes:mdindexpage:root',
+  markdownLabelIndex: (label: string) => `nodes:mdindexpage:${label}`,
 };
 
 /**

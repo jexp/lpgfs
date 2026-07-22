@@ -29,6 +29,7 @@ import {
   getNodeForMarkdown,
   groupRelationshipsForMarkdown,
   chooseNodeLabel,
+  listNodesForMarkdownIndex,
 } from "../db/queries.js";
 import {
   parsePath,
@@ -45,6 +46,7 @@ import {
   type MarkdownRelationshipLink,
 } from "../markdown/renderer.js";
 import { propertyFallbackFieldResolver } from "../markdown/fields.js";
+import { renderRootIndex, renderLabelIndex } from "../markdown/index-renderer.js";
 
 /**
  * Context for FUSE handlers containing shared resources.
@@ -435,19 +437,27 @@ async function assertLabelAllowed(
 }
 
 /**
+ * Resolves the set of labels rendered in markdown mode: every label in the
+ * database, filtered down to mode.markdown.labels when that allow-list is
+ * configured. Shared by readdirMarkdownRoot and the root index.md
+ * generator so both agree on exactly which labels are "rendered".
+ */
+async function getRenderedLabels(ctx: HandlerContext): Promise<string[]> {
+  const labels = await getLabels(ctx.db, ctx.cache);
+  const allowList = ctx.config.mode.markdown?.labels;
+  return allowList && allowList.length > 0
+    ? labels.filter((label) => allowList.includes(label))
+    : labels;
+}
+
+/**
  * Root directory listing for markdown mode: one directory per rendered
  * label (respecting mode.markdown.labels when set).
  */
 async function readdirMarkdownRoot(
   ctx: HandlerContext,
 ): Promise<DirectoryEntry[]> {
-  const labels = await getLabels(ctx.db, ctx.cache);
-  const allowList = ctx.config.mode.markdown?.labels;
-  const rendered =
-    allowList && allowList.length > 0
-      ? labels.filter((label) => allowList.includes(label))
-      : labels;
-
+  const rendered = await getRenderedLabels(ctx);
   return rendered.map((label) => ({ name: label, type: "directory" }));
 }
 
@@ -569,6 +579,61 @@ async function renderMarkdownNode(
 }
 
 /**
+ * Renders the virtual root `/index.md`, cached under the same label-listing
+ * TTL bucket as the label listings it links to (cacheKey.markdownRootIndex,
+ * "nodes:"-prefixed).
+ */
+async function renderMarkdownRootIndex(ctx: HandlerContext): Promise<string> {
+  const key = cacheKey.markdownRootIndex();
+  const cached = ctx.cache.get<string>(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const renderedLabels = await getRenderedLabels(ctx);
+  const linkStyle =
+    (ctx.config.mode.markdown ?? DEFAULT_MARKDOWN_MODE_CONFIG).linkStyle;
+  const content = renderRootIndex(renderedLabels, linkStyle);
+
+  ctx.cache.set(key, content);
+  return content;
+}
+
+/**
+ * Renders a virtual `/<Label>/index.md`, cached under
+ * cacheKey.markdownLabelIndex (same "nodes:" TTL bucket as label listings).
+ * Reuses listNodesForMarkdownIndex's single projection query, so no
+ * per-node query is issued (REQ-F-064).
+ */
+async function renderMarkdownLabelIndex(
+  label: string,
+  ctx: HandlerContext,
+): Promise<string> {
+  await assertLabelAllowed(label, ctx);
+
+  const key = cacheKey.markdownLabelIndex(label);
+  const cached = ctx.cache.get<string>(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const markdownConfig =
+    ctx.config.mode.markdown ?? DEFAULT_MARKDOWN_MODE_CONFIG;
+  const nodes = await listNodesForMarkdownIndex(
+    ctx.db,
+    label,
+    markdownConfig.fields,
+    markdownConfig.textProperties,
+    ctx.config,
+    ctx.cache,
+  );
+  const content = renderLabelIndex(label, nodes, markdownConfig.linkStyle);
+
+  ctx.cache.set(key, content);
+  return content;
+}
+
+/**
  * Markdown-mode getattr dispatch.
  */
 async function getattrMarkdown(
@@ -592,6 +657,28 @@ async function getattrMarkdown(
         pathContext.nodeName!,
         ctx,
       );
+      return {
+        type: "file",
+        size: Buffer.byteLength(content, "utf8"),
+        mtime: now,
+        atime: now,
+        ctime: now,
+      };
+    }
+
+    case "root-index": {
+      const content = await renderMarkdownRootIndex(ctx);
+      return {
+        type: "file",
+        size: Buffer.byteLength(content, "utf8"),
+        mtime: now,
+        atime: now,
+        ctime: now,
+      };
+    }
+
+    case "label-index": {
+      const content = await renderMarkdownLabelIndex(pathContext.label!, ctx);
       return {
         type: "file",
         size: Buffer.byteLength(content, "utf8"),
@@ -645,16 +732,29 @@ async function readMarkdown(
 ): Promise<ReadResult> {
   const pathContext: MarkdownPathContext = parseMarkdownPath(path);
 
-  if (pathContext.type !== "node") {
-    throw new LpgfsError(`Not a file: ${path}`, POSIX_ERRORS.ENOENT);
-  }
+  switch (pathContext.type) {
+    case "node": {
+      const content = await renderMarkdownNode(
+        pathContext.label!,
+        pathContext.nodeName!,
+        ctx,
+      );
+      return sliceMarkdownContent(content, offset, length);
+    }
 
-  const content = await renderMarkdownNode(
-    pathContext.label!,
-    pathContext.nodeName!,
-    ctx,
-  );
-  return sliceMarkdownContent(content, offset, length);
+    case "root-index": {
+      const content = await renderMarkdownRootIndex(ctx);
+      return sliceMarkdownContent(content, offset, length);
+    }
+
+    case "label-index": {
+      const content = await renderMarkdownLabelIndex(pathContext.label!, ctx);
+      return sliceMarkdownContent(content, offset, length);
+    }
+
+    default:
+      throw new LpgfsError(`Not a file: ${path}`, POSIX_ERRORS.ENOENT);
+  }
 }
 
 /**

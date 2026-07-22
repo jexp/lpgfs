@@ -217,11 +217,22 @@ function createMockDbMarkdown(
         const label = labelMatch[1]!;
         const nodes = nodesByLabel[label] || [];
         return Promise.resolve({
-          records: nodes.map((n) => ({
-            elementId: n.elementId,
-            properties: n.properties,
-            labels: n.labels ?? [label],
-          })),
+          records: nodes.map((n) => {
+            const props = n.properties as Record<string, unknown>;
+            return {
+              elementId: n.elementId,
+              properties: n.properties,
+              labels: n.labels ?? [label],
+              // Only listNodesForMarkdownIndex's query selects these
+              // columns (its RETURN clause includes "AS title"), but
+              // supplying them unconditionally here is harmless for the
+              // plain getNodesByLabel-shaped queries above, which just
+              // ignore the extra fields.
+              title: (props.title ?? props.name ?? null) as unknown,
+              timestamp: (props.updated ?? props.lastUpdated ?? props.modified ?? props.created ?? null) as unknown,
+              rawDescription: (props.summary ?? props.text ?? props.content ?? null) as unknown,
+            };
+          }),
         });
       }
 
@@ -3040,6 +3051,125 @@ describe('markdown mode', () => {
       expect(() => chmod('/Character/odysseus.md', 0o644, ctx)).toThrow(
         expect.objectContaining({ code: POSIX_ERRORS.EROFS })
       );
+    });
+  });
+
+  describe('generated index.md files (root and per-label)', () => {
+    it('getattr on /index.md reports the exact rendered byte length', async () => {
+      const db = createMockDbMarkdown(['Character', 'Place']);
+      const ctx = createCtx(markdownConfig(), db);
+
+      const stat = await getattr('/index.md', ctx);
+      const content = await read('/index.md', ctx);
+
+      expect(stat.type).toBe('file');
+      expect(stat.size).toBe(Buffer.byteLength(content.content, 'utf8'));
+    });
+
+    it('read on /index.md contains okf_version frontmatter and a link to every rendered label', async () => {
+      const db = createMockDbMarkdown(['Character', 'Place']);
+      const ctx = createCtx(markdownConfig(), db);
+
+      const result = await read('/index.md', ctx);
+
+      expect(result.content).toContain('okf_version: "0.1"');
+      expect(result.content).toContain('[[Character/index]]');
+      expect(result.content).toContain('[[Place/index]]');
+    });
+
+    it('/index.md only links rendered labels, respecting mode.markdown.labels', async () => {
+      const db = createMockDbMarkdown(['Character', 'Place', 'Creature']);
+      const ctx = createCtx(markdownConfig({ labels: ['Character'] }), db);
+
+      const result = await read('/index.md', ctx);
+
+      expect(result.content).toContain('[[Character/index]]');
+      expect(result.content).not.toContain('Place');
+      expect(result.content).not.toContain('Creature');
+    });
+
+    it('getattr on /<Label>/index.md reports the exact rendered byte length', async () => {
+      const db = createMockDbMarkdown(['Character'], {
+        Character: [{ elementId: '4:a:0', properties: { name: 'odysseus', title: 'Odysseus' } }],
+      });
+      const ctx = createCtx(markdownConfig(), db);
+
+      const stat = await getattr('/Character/index.md', ctx);
+      const content = await read('/Character/index.md', ctx);
+
+      expect(stat.type).toBe('file');
+      expect(stat.size).toBe(Buffer.byteLength(content.content, 'utf8'));
+    });
+
+    it('read on /<Label>/index.md lists every concept in that label with a derived description', async () => {
+      const db = createMockDbMarkdown(['Character'], {
+        Character: [
+          { elementId: '4:a:0', properties: { name: 'odysseus', title: 'Odysseus', summary: 'King of Ithaca.' } },
+          { elementId: '4:a:1', properties: { name: 'penelope', title: 'Penelope' } },
+        ],
+      });
+      const ctx = createCtx(markdownConfig(), db);
+
+      const result = await read('/Character/index.md', ctx);
+
+      expect(result.content).toContain('[[Character/odysseus]] — Odysseus — King of Ithaca.');
+      expect(result.content).toContain('[[Character/penelope]] — Penelope');
+      expect(result.content.startsWith('---')).toBe(false);
+    });
+
+    it('read on /<Label>/index.md for an empty label renders a minimal valid file, not an error', async () => {
+      const db = createMockDbMarkdown(['Character']);
+      const ctx = createCtx(markdownConfig(), db);
+
+      const result = await read('/Character/index.md', ctx);
+
+      expect(result.content.length).toBeGreaterThan(0);
+    });
+
+    it('getattr on /<Label>/index.md for an excluded label throws ENOENT', async () => {
+      const db = createMockDbMarkdown(['Character', 'Place']);
+      const ctx = createCtx(markdownConfig({ labels: ['Character'] }), db);
+
+      await expect(getattr('/Place/index.md', ctx)).rejects.toEqual(
+        expect.objectContaining({ code: POSIX_ERRORS.ENOENT })
+      );
+    });
+
+    it('markdown-mode /<Label>/index.md links use the configured markdown linkStyle', async () => {
+      const db = createMockDbMarkdown(['Character'], {
+        Character: [{ elementId: '4:a:0', properties: { name: 'odysseus' } }],
+      });
+      const ctx = createCtx(markdownConfig({ linkStyle: 'markdown' }), db);
+
+      const result = await read('/Character/index.md', ctx);
+
+      expect(result.content).toContain('/Character/odysseus.md');
+    });
+
+    it('caches the rendered root index.md, issuing no additional query on a second read', async () => {
+      const db = createMockDbMarkdown(['Character']);
+      const ctx = createCtx(markdownConfig(), db);
+
+      await read('/index.md', ctx);
+      const callsAfterFirst = (db.executeQuery as ReturnType<typeof vi.fn>).mock.calls.length;
+      await read('/index.md', ctx);
+      const callsAfterSecond = (db.executeQuery as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      expect(callsAfterSecond).toBe(callsAfterFirst);
+    });
+
+    it('caches the rendered per-label index.md, issuing no additional per-node query on a second read', async () => {
+      const db = createMockDbMarkdown(['Character'], {
+        Character: [{ elementId: '4:a:0', properties: { name: 'odysseus' } }],
+      });
+      const ctx = createCtx(markdownConfig(), db);
+
+      await read('/Character/index.md', ctx);
+      const callsAfterFirst = (db.executeQuery as ReturnType<typeof vi.fn>).mock.calls.length;
+      await read('/Character/index.md', ctx);
+      const callsAfterSecond = (db.executeQuery as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      expect(callsAfterSecond).toBe(callsAfterFirst);
     });
   });
 

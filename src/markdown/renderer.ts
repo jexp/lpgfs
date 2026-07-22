@@ -97,7 +97,7 @@ function resolveTextPropertyNames(
   return override ?? textProperties.default;
 }
 
-function toBodyText(value: PropertyValue): string {
+export function toBodyText(value: PropertyValue): string {
   if (value === null) return '';
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
@@ -119,11 +119,21 @@ function buildBody(properties: Properties, textPropertyNames: string[]): string 
   return sections.map((section) => `## ${section.name}\n\n${section.text}`).join('\n\n');
 }
 
-function renderLink(link: MarkdownRelationshipLink, linkStyle: LinkStyle): string {
+/**
+ * Renders a link to a `<Label>/<name>` concept file per the configured
+ * link style. Shared with the index/log generators (src/markdown/index-
+ * renderer.ts) so root/label/log links use the exact same convention as
+ * relationship links within node files.
+ */
+export function renderConceptLink(targetLabel: string, targetName: string, linkStyle: LinkStyle): string {
   if (linkStyle === 'wikilink') {
-    return `[[${link.targetLabel}/${link.targetName}]]`;
+    return `[[${targetLabel}/${targetName}]]`;
   }
-  return `/${link.targetLabel}/${link.targetName}.md`;
+  return `/${targetLabel}/${targetName}.md`;
+}
+
+function renderLink(link: MarkdownRelationshipLink, linkStyle: LinkStyle): string {
+  return renderConceptLink(link.targetLabel, link.targetName, linkStyle);
 }
 
 function buildRelationshipEntries(

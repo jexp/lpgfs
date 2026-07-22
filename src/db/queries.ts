@@ -939,16 +939,7 @@ export async function listNodesForMarkdownIndex(
   const cypher = buildMarkdownIndexQuery(label, titleFallbacks, timestampFallbacks, textPropertyFallbacks);
   const result = await db.executeQuery<RawMarkdownIndexRow>(cypher);
 
-  // A multi-label node only counts toward its chosen label's listing
-  // (REQ-F-014), not every label it carries, so index/log generation built
-  // on this projection never lists (or double-counts) it under more than
-  // one label.
-  const configuredLabelOrder = config.mode.markdown?.labels;
-  const records = result.records.filter(
-    (record) => chooseNodeLabel(record.labels ?? [label], configuredLabelOrder) === label
-  );
-
-  if (records.length === 0) {
+  if (result.records.length === 0) {
     if (cache) cache.set(key, []);
     return [];
   }
@@ -961,7 +952,7 @@ export async function listNodesForMarkdownIndex(
   const namingStrategy = getNamingStrategy(label, config);
   const propertyName = getPropertyName(label, config);
 
-  const items = records.map((record) => {
+  const items = result.records.map((record) => {
     let baseName: string;
     if (namingStrategy === 'property' && propertyName) {
       const propValue = record.properties[propertyName];
@@ -975,29 +966,48 @@ export async function listNodesForMarkdownIndex(
     return { baseName, elementId: record.elementId, record };
   });
 
+  // Collision resolution runs over every same-label node BEFORE the
+  // chosen-label filter below, mirroring readdirMarkdownLabel's use of the
+  // unfiltered getNodesByLabel result. Filtering first (as an earlier
+  // version of this function did) would let a multi-label node's base name
+  // drop out of the collision computation entirely, disagreeing with the
+  // suffixed filename readdirMarkdownLabel/renderMarkdownNode actually use
+  // for a different, single-label node sharing that base name.
   const resolvedNames = resolveCollisions(
     items.map(({ baseName, elementId }) => ({ baseName, elementId })),
     label,
     config.collision
   );
 
-  const nodes: MarkdownIndexNodeResult[] = items.map((item, index) => {
-    const { record } = item;
-    const title = record.title === null ? undefined : record.title;
-    const timestamp = record.timestamp === null ? undefined : toIsoTimestamp(record.timestamp);
-    const description =
-      record.rawDescription === null
-        ? null
-        : truncateDescription(descriptionValueToText(record.rawDescription));
+  // A multi-label node only counts toward its chosen label's listing
+  // (REQ-F-014), not every label it carries, so index/log generation built
+  // on this projection never lists (or double-counts) it under more than
+  // one label.
+  const configuredLabelOrder = config.mode.markdown?.labels;
 
-    return {
-      name: resolvedNames[index]!,
-      elementId: item.elementId,
-      title,
-      timestamp,
-      description,
-    };
-  });
+  const nodes: MarkdownIndexNodeResult[] = items.reduce<MarkdownIndexNodeResult[]>(
+    (acc, item, index) => {
+      const { record } = item;
+      if (chooseNodeLabel(record.labels ?? [label], configuredLabelOrder) !== label) return acc;
+
+      const title = record.title === null ? undefined : record.title;
+      const timestamp = record.timestamp === null ? undefined : toIsoTimestamp(record.timestamp);
+      const description =
+        record.rawDescription === null
+          ? null
+          : truncateDescription(descriptionValueToText(record.rawDescription));
+
+      acc.push({
+        name: resolvedNames[index]!,
+        elementId: item.elementId,
+        title,
+        timestamp,
+        description,
+      });
+      return acc;
+    },
+    []
+  );
 
   if (cache) cache.set(key, nodes);
   return nodes;

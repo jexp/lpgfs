@@ -234,7 +234,8 @@ tasks:
       every concept in that label with a short description when
       derivable), using the projected data from task-010 and the
       configured link style. Cache with the label-listing TTL.
-    status: pending
+    status: completed
+    completed_at: "2026-07-22T23:00:19Z"
     dependencies:
       - task-010
       - task-009

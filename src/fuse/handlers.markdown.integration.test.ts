@@ -153,3 +153,112 @@ describe.skipIf(!uri)('markdown-mode FUSE handlers (integration)', () => {
     spy.mockRestore();
   });
 });
+
+describe.skipIf(!uri)('root and per-label index.md generation (integration)', () => {
+  let writeDriver: Driver;
+  let db: DatabaseConnection;
+  let ctx: HandlerContext;
+
+  const config: ConfigSchema = {
+    ...DEFAULT_CONFIG,
+    naming: {
+      default: 'elementId',
+      overrides: {
+        nodes: { Person: { property: 'name' }, Company: { property: 'name' } },
+      },
+    },
+    mode: {
+      type: 'markdown',
+      markdown: {
+        ...DEFAULT_MARKDOWN_MODE_CONFIG,
+        linkStyle: 'markdown',
+        textProperties: { default: ['summary'] },
+      },
+    },
+  };
+
+  beforeAll(async () => {
+    writeDriver = neo4j.driver(
+      uri!,
+      env.NEO4J_USERNAME && env.NEO4J_PASSWORD
+        ? neo4j.auth.basic(env.NEO4J_USERNAME, env.NEO4J_PASSWORD)
+        : undefined
+    );
+    const writeSession = writeDriver.session();
+    try {
+      await writeSession.run(`MATCH (n) WHERE n.testMarker = 'task011' DETACH DELETE n`);
+      await writeSession.run(
+        `CREATE (:Person {name: 'alice', title: 'Alice', summary: 'A curious explorer.', testMarker: 'task011'})
+         CREATE (:Person {name: 'bob', testMarker: 'task011'})
+         CREATE (:Company {name: 'acme', title: 'Acme Corp', testMarker: 'task011'})
+         CREATE (:Person:VIP {name: 'carol', title: 'Carol', testMarker: 'task011'})`
+      );
+    } finally {
+      await writeSession.close();
+    }
+
+    db = createConnection({
+      uri: uri!,
+      username: env.NEO4J_USERNAME,
+      password: env.NEO4J_PASSWORD,
+    });
+    await db.connect();
+    ctx = createHandlerContext(db, { config, cache: new Cache() });
+  });
+
+  afterAll(async () => {
+    await db.close();
+    const writeSession = writeDriver.session();
+    try {
+      await writeSession.run(`MATCH (n) WHERE n.testMarker = 'task011' DETACH DELETE n`);
+    } finally {
+      await writeSession.close();
+      await writeDriver.close();
+    }
+  });
+
+  it('/index.md reports accurate getattr size and links every rendered label to its own index.md', async () => {
+    const stat = await getattr('/index.md', ctx);
+    const result = await read('/index.md', ctx);
+
+    expect(Buffer.byteLength(result.content, 'utf8')).toBe(stat.size);
+    expect(result.content).toContain('okf_version: "0.1"');
+    expect(result.content).not.toMatch(/^type:/m);
+    expect(result.content).toContain('/Person/index.md');
+    expect(result.content).toContain('/Company/index.md');
+    expect(result.content).toContain('/VIP/index.md');
+  });
+
+  it('/Person/index.md lists alice and bob with derived descriptions, real query results end-to-end', async () => {
+    const stat = await getattr('/Person/index.md', ctx);
+    const result = await read('/Person/index.md', ctx);
+
+    expect(Buffer.byteLength(result.content, 'utf8')).toBe(stat.size);
+    expect(result.content.startsWith('---')).toBe(false);
+    expect(result.content).toContain('/Person/alice.md — Alice — A curious explorer.');
+    expect(result.content).toContain('/Person/bob.md');
+  });
+
+  it('a multi-label node (Person+VIP) is listed under its chosen label (Person) only', async () => {
+    const personIndex = await read('/Person/index.md', ctx);
+    const vipIndex = await read('/VIP/index.md', ctx);
+
+    expect(personIndex.content).toContain('/Person/carol.md — Carol');
+    expect(vipIndex.content).not.toContain('carol');
+  });
+
+  it('/VIP/index.md (a rendered label whose only node was claimed by Person) renders a minimal valid file rather than erroring', async () => {
+    const result = await read('/VIP/index.md', ctx);
+    expect(result.content.length).toBeGreaterThan(0);
+  });
+
+  it('/Company/index.md read reuses the cache populated by getattr (no extra query)', async () => {
+    await getattr('/Company/index.md', ctx);
+    const spy = vi.spyOn(db, 'executeQuery');
+    const result = await read('/Company/index.md', ctx);
+
+    expect(result.content).toContain('/Company/acme.md');
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
