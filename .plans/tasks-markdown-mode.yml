@@ -110,7 +110,8 @@ tasks:
       ISO 8601 and coerce scalar tags to a single-item list. Design the
       resolver behind a small interface so a future CypherFieldResolver can
       be substituted without changing the renderer (per Future Extensions).
-    status: pending
+    status: completed
+    completed_at: "2026-07-22T21:40:00Z"
     dependencies:
       - task-005
     acceptance_criteria:
@@ -119,7 +120,6 @@ tasks:
       - "A node matching none of a field's fallbacks omits that canonical key entirely"
       - "A scalar tags value becomes a single-item YAML list; setting a field's fallback list to [] disables that mapping"
       - "Resolver is invoked through an interface the renderer depends on, not a hardcoded property lookup"
-    completed_at: null
 
   - id: task-018
     title: "Add single-query node+relationships fetch for markdown rendering"
