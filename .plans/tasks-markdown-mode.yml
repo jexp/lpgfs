@@ -86,7 +86,8 @@ tasks:
       (wikilink or markdown link style, alphabetical target order), then the
       concatenated text body with ## headings when multiple sections are
       present.
-    status: pending
+    status: completed
+    completed_at: 2026-07-22T19:03:37Z
     dependencies:
       - task-001
     acceptance_criteria:
