@@ -62,6 +62,36 @@ export class ConfigParser {
   }
 
   /**
+   * Apply a CLI-provided mode override on top of a parsed config.
+   *
+   * When `cliMode` is set, it replaces `config.mode.type` regardless of what
+   * the config file specified. If the override switches to 'markdown' and
+   * the config didn't already carry a mode.markdown section, the default
+   * markdown mode config is filled in (mirroring validateMode's defaulting).
+   * When `cliMode` is undefined, `config` is returned unchanged.
+   *
+   * @param config - Config already parsed from file (or defaults)
+   * @param cliMode - Mode from the --mode CLI flag, if provided
+   * @returns Config with mode.type overridden when cliMode is set
+   */
+  static applyModeOverride(config: ConfigSchema, cliMode?: ModeType): ConfigSchema {
+    if (cliMode === undefined || cliMode === config.mode.type) {
+      return config;
+    }
+
+    return {
+      ...config,
+      mode: {
+        type: cliMode,
+        markdown:
+          cliMode === 'markdown'
+            ? config.mode.markdown ?? structuredClone(DEFAULT_MARKDOWN_MODE_CONFIG)
+            : undefined,
+      },
+    };
+  }
+
+  /**
    * Load a configuration file, returning defaults if file doesn't exist.
    *
    * @param filePath - Path to the .lpgfs.yaml file

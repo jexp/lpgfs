@@ -6,9 +6,17 @@
  * fuse-native and FUSE to be installed. Instead, they test the daemon structure.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Daemon, createDaemon, unmount } from './daemon.js';
-import type { MountOptions } from '../types/index.js';
+import type { ConfigSchema, MountOptions } from '../types/index.js';
+
+/** Exposes Daemon's private loadConfig() for testing config/mode wiring. */
+interface DaemonWithLoadConfig {
+  loadConfig(): Promise<ConfigSchema>;
+}
 
 describe('Daemon', () => {
   const mockMountOptions: MountOptions = {
@@ -121,5 +129,56 @@ describe('unmount', () => {
   it('should fail gracefully if nothing is mounted', async () => {
     // Try to unmount an empty directory (not actually mounted)
     await expect(unmount('./')).rejects.toThrow('Failed to unmount');
+  });
+});
+
+describe('Daemon config mode override', () => {
+  const mockMountOptions: MountOptions = {
+    db: 'neo4j://localhost:7687',
+    config: './.lpgfs.yaml',
+    cacheTtl: 10,
+    allowOther: false,
+    debug: false,
+    foreground: false,
+  };
+
+  let configDir: string;
+
+  beforeEach(() => {
+    configDir = mkdtempSync(join(tmpdir(), 'lpgfs-daemon-test-'));
+  });
+
+  afterEach(() => {
+    rmSync(configDir, { recursive: true, force: true });
+  });
+
+  function daemonWithConfig(
+    configYaml: string,
+    mode?: MountOptions['mode']
+  ): DaemonWithLoadConfig {
+    const configPath = join(configDir, '.lpgfs.yaml');
+    writeFileSync(configPath, configYaml);
+
+    const daemon = new Daemon({
+      mountpoint: '/tmp/mnt',
+      mountOptions: { ...mockMountOptions, config: configPath, mode },
+    });
+
+    return daemon as unknown as DaemonWithLoadConfig;
+  }
+
+  it('applies --mode override on top of the config file value', async () => {
+    const daemon = daemonWithConfig('mode:\n  type: classic\n', 'markdown');
+    const config = await daemon.loadConfig();
+
+    expect(config.mode.type).toBe('markdown');
+    expect(config.mode.markdown).toBeDefined();
+  });
+
+  it('preserves the config file value when mode is omitted', async () => {
+    const daemon = daemonWithConfig('mode:\n  type: markdown\n', undefined);
+    const config = await daemon.loadConfig();
+
+    expect(config.mode.type).toBe('markdown');
   });
 });

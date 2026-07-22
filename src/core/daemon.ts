@@ -538,16 +538,16 @@ export class Daemon {
    */
   private async loadConfig(): Promise<ConfigSchema> {
     const configPath = this.mountOptions.config;
+    let config: ConfigSchema = DEFAULT_CONFIG;
 
     if (configPath) {
       const absolutePath = resolve(configPath);
       if (existsSync(absolutePath)) {
-        return ConfigParser.load(absolutePath);
+        config = await ConfigParser.load(absolutePath);
       }
     }
 
-    // Return default config if no config file
-    return DEFAULT_CONFIG;
+    return ConfigParser.applyModeOverride(config, this.mountOptions.mode);
   }
 
   /**

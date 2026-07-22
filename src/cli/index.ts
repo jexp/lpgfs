@@ -14,7 +14,7 @@
 import { Command } from 'commander';
 import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { MountOptions } from '../types/index.js';
+import type { ModeType, MountOptions } from '../types/index.js';
 import { DEFAULT_MOUNT_OPTIONS } from '../types/index.js';
 import { Daemon, unmount as unmountFs } from '../core/daemon.js';
 
@@ -60,6 +60,23 @@ export function validateMountpoint(mountpoint: string): string {
   }
 
   return absolutePath;
+}
+
+/**
+ * Validates and narrows a raw --mode value.
+ * @param mode - Raw value passed to --mode, or undefined if omitted
+ * @throws Error if mode is present but not 'classic' or 'markdown'
+ */
+export function validateMode(mode: string | undefined): ModeType | undefined {
+  if (mode === undefined) {
+    return undefined;
+  }
+
+  if (mode !== 'classic' && mode !== 'markdown') {
+    throw new Error(`--mode must be 'classic' or 'markdown', got: ${mode}`);
+  }
+
+  return mode;
 }
 
 /**
@@ -112,6 +129,10 @@ export function createProgram(exitOverride = false): Command {
     .option('--foreground', 'Run in foreground (do not daemonize)', false)
     .option('--user <name>', 'Database username')
     .option('--password <pass>', 'Database password')
+    .option(
+      '--mode <mode>',
+      "Filesystem layout mode ('classic' or 'markdown'); overrides mode.type from the config file"
+    )
     .action(() => {
       // Action is handled by parseArgs
     });
@@ -220,6 +241,7 @@ function parseMountCommand(cmd: Command): ParsedCommand {
     foreground: opts.foreground as boolean,
     user: opts.user as string | undefined,
     password: opts.password as string | undefined,
+    mode: validateMode(opts.mode as string | undefined),
   };
 
   // Validate cache TTL

@@ -439,6 +439,8 @@ export interface MountOptions {
   user?: string;
   /** Database password */
   password?: string;
+  /** Filesystem layout mode; overrides mode.type from the config file when set */
+  mode?: ModeType;
 }
 
 /**

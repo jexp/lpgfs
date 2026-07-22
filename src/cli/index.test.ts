@@ -9,8 +9,10 @@ import { tmpdir } from 'node:os';
 import {
   parseArgs,
   validateMountpoint,
+  validateMode,
   createProgram,
 } from './index.js';
+import { ConfigParser } from '../config/parser.js';
 
 // Create a temporary directory for testing
 const testDir = join(tmpdir(), 'lpgfs-test-' + Date.now());
@@ -76,6 +78,27 @@ describe('createProgram', () => {
     expect(optionNames).toContain('--foreground');
     expect(optionNames).toContain('--user');
     expect(optionNames).toContain('--password');
+    expect(optionNames).toContain('--mode');
+  });
+});
+
+describe('validateMode', () => {
+  it('returns undefined when mode is omitted', () => {
+    expect(validateMode(undefined)).toBeUndefined();
+  });
+
+  it('accepts classic', () => {
+    expect(validateMode('classic')).toBe('classic');
+  });
+
+  it('accepts markdown', () => {
+    expect(validateMode('markdown')).toBe('markdown');
+  });
+
+  it('throws for an invalid mode value', () => {
+    expect(() => validateMode('banana')).toThrow(
+      "--mode must be 'classic' or 'markdown', got: banana"
+    );
   });
 });
 
@@ -214,6 +237,87 @@ describe('parseArgs - mount command', () => {
     expect(() => parseArgs(['mount', testDir, '--cache-ttl', '-5'])).toThrow(
       '--cache-ttl must be a non-negative number'
     );
+  });
+
+  it('parses mount command with --mode markdown', () => {
+    const result = parseArgs(['mount', testDir, '--mode', 'markdown']);
+
+    expect(result.command).toBe('mount');
+    if (result.command === 'mount') {
+      expect(result.data.options.mode).toBe('markdown');
+    }
+  });
+
+  it('parses mount command with --mode classic', () => {
+    const result = parseArgs(['mount', testDir, '--mode', 'classic']);
+
+    expect(result.command).toBe('mount');
+    if (result.command === 'mount') {
+      expect(result.data.options.mode).toBe('classic');
+    }
+  });
+
+  it('leaves mode undefined when --mode is omitted', () => {
+    const result = parseArgs(['mount', testDir]);
+
+    expect(result.command).toBe('mount');
+    if (result.command === 'mount') {
+      expect(result.data.options.mode).toBeUndefined();
+    }
+  });
+
+  it('throws for an invalid --mode value', () => {
+    expect(() =>
+      parseArgs(['mount', testDir, '--mode', 'banana'])
+    ).toThrow("--mode must be 'classic' or 'markdown', got: banana");
+  });
+});
+
+describe('parseArgs - mode precedence over config file', () => {
+  it('CLI --mode markdown overrides mode.type from the config file', () => {
+    const result = parseArgs(['mount', testDir, '--mode', 'markdown']);
+
+    expect(result.command).toBe('mount');
+    if (result.command !== 'mount') return;
+
+    const fileConfig = ConfigParser.parse('mode:\n  type: classic\n');
+    const effectiveConfig = ConfigParser.applyModeOverride(
+      fileConfig,
+      result.data.options.mode
+    );
+
+    expect(effectiveConfig.mode.type).toBe('markdown');
+    expect(effectiveConfig.mode.markdown).toBeDefined();
+  });
+
+  it('omitting --mode preserves the config file mode.type', () => {
+    const result = parseArgs(['mount', testDir]);
+
+    expect(result.command).toBe('mount');
+    if (result.command !== 'mount') return;
+
+    const fileConfig = ConfigParser.parse('mode:\n  type: markdown\n');
+    const effectiveConfig = ConfigParser.applyModeOverride(
+      fileConfig,
+      result.data.options.mode
+    );
+
+    expect(effectiveConfig.mode.type).toBe('markdown');
+  });
+
+  it('omitting --mode preserves the classic default when no config file mode is set', () => {
+    const result = parseArgs(['mount', testDir]);
+
+    expect(result.command).toBe('mount');
+    if (result.command !== 'mount') return;
+
+    const fileConfig = ConfigParser.parse('naming:\n  default: elementId\n');
+    const effectiveConfig = ConfigParser.applyModeOverride(
+      fileConfig,
+      result.data.options.mode
+    );
+
+    expect(effectiveConfig.mode.type).toBe('classic');
   });
 });
 

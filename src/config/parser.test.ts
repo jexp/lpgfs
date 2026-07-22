@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { ConfigParser, ConfigValidationError } from './parser.js';
-import { DEFAULT_CONFIG } from '../types/index.js';
+import { DEFAULT_CONFIG, DEFAULT_MARKDOWN_MODE_CONFIG } from '../types/index.js';
 
 describe('ConfigParser.parse', () => {
   it('returns defaults for empty content', () => {
@@ -234,5 +234,63 @@ mode:
   it('does not add mode.markdown when mode.type is classic and markdown section is absent', () => {
     const config = ConfigParser.parse('mode:\n  type: classic\n');
     expect(config.mode).toEqual({ type: 'classic' });
+  });
+});
+
+describe('ConfigParser.applyModeOverride', () => {
+  it('returns the config unchanged when cliMode is undefined', () => {
+    const config = ConfigParser.parse('mode:\n  type: markdown\n');
+    expect(ConfigParser.applyModeOverride(config, undefined)).toBe(config);
+  });
+
+  it('returns the config unchanged when cliMode matches the config file mode.type', () => {
+    const config = ConfigParser.parse('mode:\n  type: classic\n');
+    expect(ConfigParser.applyModeOverride(config, 'classic')).toBe(config);
+  });
+
+  it('overrides mode.type from classic to markdown and fills in markdown defaults', () => {
+    const config = ConfigParser.parse('mode:\n  type: classic\n');
+    const result = ConfigParser.applyModeOverride(config, 'markdown');
+
+    expect(result.mode.type).toBe('markdown');
+    expect(result.mode.markdown).toEqual(DEFAULT_MARKDOWN_MODE_CONFIG);
+  });
+
+  it('overrides mode.type from markdown to classic and drops the markdown section', () => {
+    const config = ConfigParser.parse(
+      'mode:\n  type: markdown\n  markdown:\n    linkStyle: markdown\n'
+    );
+    const result = ConfigParser.applyModeOverride(config, 'classic');
+
+    expect(result.mode).toEqual({ type: 'classic' });
+  });
+
+  it('preserves an existing mode.markdown section when overriding to markdown', () => {
+    const config = ConfigParser.parse('mode:\n  type: classic\n');
+
+    // Simulate a config that already carries a markdown section under a
+    // different mode.type (not reachable via the parser, but defends the
+    // override logic against future callers that pre-populate it).
+    const preExistingMarkdownConfig = {
+      linkStyle: 'markdown' as const,
+      includeIncoming: true,
+      textProperties: { default: [] },
+      fields: { title: [], timestamp: [], tags: [] },
+    };
+    const withMarkdown = {
+      ...config,
+      mode: { type: 'classic' as const, markdown: preExistingMarkdownConfig },
+    };
+    const result = ConfigParser.applyModeOverride(withMarkdown, 'markdown');
+
+    expect(result.mode.markdown?.linkStyle).toBe('markdown');
+    expect(result.mode.markdown?.includeIncoming).toBe(true);
+  });
+
+  it('does not mutate the input config object', () => {
+    const config = ConfigParser.parse('mode:\n  type: classic\n');
+    const original = structuredClone(config);
+    ConfigParser.applyModeOverride(config, 'markdown');
+    expect(config).toEqual(original);
   });
 });

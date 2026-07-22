@@ -29,7 +29,7 @@ tasks:
       src/cli/index.ts, extend MountOptions/DEFAULT_MOUNT_OPTIONS in
       src/types/index.ts, and ensure the CLI flag overrides the config
       file's mode.type when both are present.
-    status: pending
+    status: completed
     dependencies:
       - task-001
     acceptance_criteria:
@@ -37,7 +37,7 @@ tasks:
       - "Omitting --mode preserves the config file's mode.type (or classic default)"
       - "Invalid --mode values are rejected with a clear CLI error"
       - "CLI unit tests cover flag parsing and precedence over config file"
-    completed_at: null
+    completed_at: 2026-07-22T19:15:54Z
 
   - id: task-003
     title: "Add Obsidian-illegal character sanitization and reserved-name suffixing"
