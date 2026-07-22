@@ -10,15 +10,19 @@ import {
   ConfigSchema,
   DEFAULT_CONFIG,
   Direction,
+  LabelPropertyListOverrides,
+  MarkdownFieldsConfig,
   NamingStrategy,
   NodeQueryResult,
   Properties,
   PropertyValue,
   RelationshipQueryResult,
+  TextPropertiesConfig,
 } from '../types/index.js';
 import { sanitize, sanitizeElementId } from '../config/sanitize.js';
 import { resolveCollisions } from '../config/collision.js';
 import { Cache, cacheKey } from '../cache/index.js';
+import { toIsoTimestamp } from '../markdown/fields.js';
 
 /**
  * Get all node labels in the database.
@@ -781,4 +785,178 @@ export async function getRelationshipProperties(
   }
 
   return props;
+}
+
+/**
+ * Result row for listNodesForMarkdownIndex: a node's display name plus the
+ * three OKF-mapped columns (title/timestamp/description) needed to build
+ * index.md/log.md without any extra per-node query (REQ-F-064).
+ */
+export interface MarkdownIndexNodeResult {
+  name: string;
+  elementId: string;
+  title?: PropertyValue;
+  timestamp?: string;
+  description: string | null;
+}
+
+const DEFAULT_DESCRIPTION_MAX_LENGTH = 160;
+
+/**
+ * Truncates a derived index description to a bounded length, appending an
+ * ellipsis when content was cut. Pure so it's unit-testable without a
+ * query.
+ */
+export function truncateDescription(
+  text: string,
+  maxLength: number = DEFAULT_DESCRIPTION_MAX_LENGTH
+): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, maxLength).trimEnd()}…`;
+}
+
+function descriptionValueToText(value: PropertyValue): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return JSON.stringify(value);
+}
+
+function resolveLabelListOverride(
+  overrides: LabelPropertyListOverrides | undefined,
+  label: string
+): string[] | undefined {
+  return overrides?.[label];
+}
+
+/**
+ * Resolves the title/timestamp fallback list for a label. Duplicated from
+ * fields.ts's resolveFallbackList (a trivial override-merge) rather than
+ * imported, matching the existing per-module pattern (renderer.ts does the
+ * same for textProperties).
+ */
+function resolveFieldFallbackList(
+  field: 'title' | 'timestamp',
+  fieldsConfig: MarkdownFieldsConfig,
+  label: string
+): string[] {
+  return resolveLabelListOverride(fieldsConfig.overrides?.[field], label) ?? fieldsConfig[field];
+}
+
+function resolveTextPropertyList(textPropertiesConfig: TextPropertiesConfig, label: string): string[] {
+  return resolveLabelListOverride(textPropertiesConfig.overrides, label) ?? textPropertiesConfig.default;
+}
+
+function coalesceClause(propertyNames: string[]): string {
+  if (propertyNames.length === 0) return 'null';
+  return `coalesce(${propertyNames.map((name) => `n.\`${name}\``).join(', ')})`;
+}
+
+/**
+ * Builds the Cypher text for listNodesForMarkdownIndex. Exported (pure, no
+ * I/O) so tests can assert the COALESCE clauses textually match the
+ * configured fallback list order (REQ-F-064).
+ */
+export function buildMarkdownIndexQuery(
+  label: string,
+  titleFallbacks: string[],
+  timestampFallbacks: string[],
+  textPropertyFallbacks: string[]
+): string {
+  return `MATCH (n:\`${label}\`)
+    RETURN elementId(n) AS elementId,
+           properties(n) AS properties,
+           ${coalesceClause(titleFallbacks)} AS title,
+           ${coalesceClause(timestampFallbacks)} AS timestamp,
+           ${coalesceClause(textPropertyFallbacks)} AS rawDescription`;
+}
+
+interface RawMarkdownIndexRow {
+  elementId: string;
+  properties: Properties;
+  title: PropertyValue;
+  timestamp: PropertyValue;
+  rawDescription: PropertyValue;
+}
+
+/**
+ * Lists every node of a label with its display name plus mapped
+ * title/timestamp/description columns, in one query per label (REQ-F-064),
+ * so index.md/log.md generation needs no additional per-node queries
+ * beyond this listing.
+ */
+export async function listNodesForMarkdownIndex(
+  db: DatabaseConnection,
+  label: string,
+  fieldsConfig: MarkdownFieldsConfig,
+  textPropertiesConfig: TextPropertiesConfig,
+  config: ConfigSchema = DEFAULT_CONFIG,
+  cache?: Cache
+): Promise<MarkdownIndexNodeResult[]> {
+  const key = cacheKey.markdownIndex(label);
+  if (cache) {
+    const cached = cache.get<MarkdownIndexNodeResult[]>(key);
+    if (cached !== undefined) return cached;
+  }
+
+  const titleFallbacks = resolveFieldFallbackList('title', fieldsConfig, label);
+  const timestampFallbacks = resolveFieldFallbackList('timestamp', fieldsConfig, label);
+  const textPropertyFallbacks = resolveTextPropertyList(textPropertiesConfig, label);
+
+  const cypher = buildMarkdownIndexQuery(label, titleFallbacks, timestampFallbacks, textPropertyFallbacks);
+  const result = await db.executeQuery<RawMarkdownIndexRow>(cypher);
+
+  if (result.records.length === 0) {
+    if (cache) cache.set(key, []);
+    return [];
+  }
+
+  // Naming/collision resolution mirrors getNodesByLabel, except sanitize is
+  // given config.mode.type (like groupRelationshipsForMarkdown) rather than
+  // getNodesByLabel's implicit 'classic' default, since this listing only
+  // ever runs in markdown mode.
+  const mode = config.mode.type;
+  const namingStrategy = getNamingStrategy(label, config);
+  const propertyName = getPropertyName(label, config);
+
+  const items = result.records.map((record) => {
+    let baseName: string;
+    if (namingStrategy === 'property' && propertyName) {
+      const propValue = record.properties[propertyName];
+      baseName =
+        propValue === undefined
+          ? sanitizeElementId(record.elementId, config.sanitization, mode)
+          : sanitize(propValue, config.sanitization, mode);
+    } else {
+      baseName = sanitizeElementId(record.elementId, config.sanitization, mode);
+    }
+    return { baseName, elementId: record.elementId, record };
+  });
+
+  const resolvedNames = resolveCollisions(
+    items.map(({ baseName, elementId }) => ({ baseName, elementId })),
+    label,
+    config.collision
+  );
+
+  const nodes: MarkdownIndexNodeResult[] = items.map((item, index) => {
+    const { record } = item;
+    const title = record.title === null ? undefined : record.title;
+    const timestamp = record.timestamp === null ? undefined : toIsoTimestamp(record.timestamp);
+    const description =
+      record.rawDescription === null
+        ? null
+        : truncateDescription(descriptionValueToText(record.rawDescription));
+
+    return {
+      name: resolvedNames[index]!,
+      elementId: item.elementId,
+      title,
+      timestamp,
+      description,
+    };
+  });
+
+  if (cache) cache.set(key, nodes);
+  return nodes;
 }

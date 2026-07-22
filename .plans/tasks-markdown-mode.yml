@@ -214,7 +214,8 @@ tasks:
       mapped timestamp, and a truncated first-present-text-property
       description, using COALESCE over each field's fallback property
       list, so index/log generation needs no extra per-node queries.
-    status: pending
+    status: completed
+    completed_at: "2026-07-22T22:20:00Z"
     dependencies:
       - task-006
     acceptance_criteria:

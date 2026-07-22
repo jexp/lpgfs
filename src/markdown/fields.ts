@@ -64,7 +64,7 @@ function temporalToIso(value: Record<string, PropertyValue>): string {
  * already produces for other properties rather than re-implementing
  * Neo4j temporal decoding.
  */
-function toIsoTimestamp(value: PropertyValue): string {
+export function toIsoTimestamp(value: PropertyValue): string {
   if (typeof value === 'string') return value;
   if (isPlainObject(value) && isTemporalShape(value)) return temporalToIso(value);
   if (typeof value === 'number') {

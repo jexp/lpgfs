@@ -48,6 +48,8 @@ export type CacheKeyBuilder = {
   reltypes: (elementId: string) => string;
   /** Build a key for relationships of a node */
   rels: (elementId: string, relType: string, direction: string) => string;
+  /** Build a key for the markdown-mode index projection of a label */
+  markdownIndex: (label: string) => string;
 };
 
 /**
@@ -60,6 +62,9 @@ export const cacheKey: CacheKeyBuilder = {
   reltypes: (elementId: string) => `reltypes:${elementId}`,
   rels: (elementId: string, relType: string, direction: string) =>
     `rels:${elementId}:${relType}:${direction}`,
+  // Prefixed with "nodes:" (not a new prefix) so it shares the label-listing
+  // TTL bucket per REQ-F-063, without needing a CacheKeyPrefix change.
+  markdownIndex: (label: string) => `nodes:mdindex:${label}`,
 };
 
 /**
