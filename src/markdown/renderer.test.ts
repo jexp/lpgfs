@@ -39,7 +39,7 @@ describe('renderNodeMarkdown', () => {
     expect(result).toBe('---\ntype: Person\napple: a\nmiddle: m\nzebra: z\n---\n');
   });
 
-  it('drops a property literally named "type" without duplicating the key', () => {
+  it('resolves a "type" property clash without data loss: label wins "type", property demoted to "type_property"', () => {
     const properties: Properties = { type: 'SomeValue', name: 'Alice' };
     const result = renderNodeMarkdown({
       labels: ['Person'],
@@ -48,8 +48,20 @@ describe('renderNodeMarkdown', () => {
       config: config(),
     });
 
-    expect(result).toContain('type: Person\n');
-    expect(result).not.toContain('SomeValue');
+    expect(result).toBe('---\ntype: Person\ntype_property: SomeValue\nname: Alice\n---\n');
+  });
+
+  it('does not treat a null "type" property as a clash', () => {
+    const properties: Properties = { type: null, name: 'Alice' };
+    const result = renderNodeMarkdown({
+      labels: ['Person'],
+      properties,
+      relationships: [],
+      config: config(),
+    });
+
+    expect(result).not.toContain('type_property');
+    expect(result).toBe('---\ntype: Person\nname: Alice\n---\n');
   });
 
   it('places mapped fields between type and remaining properties', () => {
@@ -293,6 +305,58 @@ describe('renderNodeMarkdown', () => {
 
     expect(result).toContain('title: Resolved Title');
     expect(result).not.toContain('Literal Title Property');
+  });
+
+  it('locks in the full frontmatter key-order contract: type/clash, mapped fields, remaining alphabetical, relationship keys alphabetical', () => {
+    const properties: Properties = {
+      type: 'ClashValue',
+      // Sorts before 'tags'/'timestamp'/'title' and before the AAA_REL
+      // relationship key, so passing requires category ordering (mapped
+      // fields, then remaining properties, then relationships) rather
+      // than one big alphabetical sort across everything.
+      alpha: 'a-value',
+      zeta: 'z-value',
+    };
+    const resolver: FieldResolver = {
+      resolve: () => ({
+        title: 'My Title',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        tags: ['x', 'y'],
+        consumedProperties: new Set(),
+      }),
+    };
+    const relationships: MarkdownRelationshipLink[] = [
+      // 'AAA_REL' sorts before 'alpha' (uppercase < lowercase), so passing
+      // requires relationships to be a strictly last group, not merged
+      // into the alphabetical remaining-properties sort.
+      { type: 'AAA_REL', direction: 'OUT', targetLabel: 'Person', targetName: 'bob' },
+      { type: 'ZZZ_REL', direction: 'OUT', targetLabel: 'Person', targetName: 'carol' },
+    ];
+    const result = renderNodeMarkdown({
+      labels: ['Person'],
+      properties,
+      relationships,
+      config: config(),
+      fieldResolver: resolver,
+    });
+
+    expect(result).toBe(
+      '---\n' +
+        'type: Person\n' +
+        'type_property: ClashValue\n' +
+        'title: My Title\n' +
+        'timestamp: 2026-01-01T00:00:00.000Z\n' +
+        'tags:\n' +
+        '  - x\n' +
+        '  - y\n' +
+        'alpha: a-value\n' +
+        'zeta: z-value\n' +
+        'AAA_REL:\n' +
+        '  - "[[Person/bob]]"\n' +
+        'ZZZ_REL:\n' +
+        '  - "[[Person/carol]]"\n' +
+        '---\n'
+    );
   });
 
   it('uses the passthroughFieldResolver by default (no mapped fields emitted)', () => {

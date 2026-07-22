@@ -275,14 +275,14 @@ tasks:
       the full frontmatter key-order contract (type/label-clash resolution,
       mapped fields, remaining properties, relationship keys) with explicit
       unit tests, since this ordering underpins the fixture round-trip test.
-    status: pending
+    status: completed
     dependencies:
       - task-006
     acceptance_criteria:
       - "A node with an existing 'type' property renders both the label-derived value and the property value without silent data loss, per the documented resolution rule"
       - "The chosen resolution rule is documented inline and in a unit test"
       - "Full key-order contract (type, mapped fields, remaining alphabetical properties, relationship keys alphabetical) is covered by a dedicated ordering unit test"
-    completed_at: null
+    completed_at: "2026-07-22T22:07:00Z"
 
   - id: task-014
     title: "Author the 20-file Odyssey fixture vault and import.cypher"

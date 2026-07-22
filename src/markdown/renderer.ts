@@ -155,9 +155,10 @@ function buildRelationshipEntries(
 
 /**
  * Renders a single node as a markdown-mode file: YAML frontmatter
- * (type, mapped fields, remaining properties alphabetically, then
- * per-relationship-type link keys alphabetically) followed by a body
- * composed from the configured text properties.
+ * (type, then type_property if a literal 'type' property collided with
+ * the label-derived type, then mapped fields, remaining properties
+ * alphabetically, then per-relationship-type link keys alphabetically)
+ * followed by a body composed from the configured text properties.
  */
 export function renderNodeMarkdown(input: RenderNodeInput): string {
   const { labels, properties, relationships, config } = input;
@@ -169,6 +170,17 @@ export function renderNodeMarkdown(input: RenderNodeInput): string {
   // guards noUncheckedIndexedAccess rather than papering over a real gap.
   frontmatter.type = labels[0] ?? '';
 
+  // Label wins the 'type' key (REQ-F-021's "always includes type: <Label>"
+  // is the load-bearing OKF invariant consumers rely on), and a colliding
+  // property is demoted to 'type_property' rather than dropped, so both
+  // values survive round-trip without ever changing what 'type' means. In
+  // the rare case a node also has a literal 'type_property' property, that
+  // property is overwritten by the demoted value here (an accepted,
+  // deliberately unhandled double collision, not a silent bug).
+  const hasTypeProperty = Object.prototype.hasOwnProperty.call(properties, 'type');
+  const hasTypeClash = hasTypeProperty && properties.type !== undefined && properties.type !== null;
+  if (hasTypeClash) frontmatter.type_property = properties.type!;
+
   if (resolved.title !== undefined) frontmatter.title = resolved.title;
   if (resolved.timestamp !== undefined) frontmatter.timestamp = resolved.timestamp;
   if (resolved.tags !== undefined) frontmatter.tags = resolved.tags;
@@ -176,20 +188,19 @@ export function renderNodeMarkdown(input: RenderNodeInput): string {
   const textPropertyNames = resolveTextPropertyNames(config.textProperties, labels[0]);
   const textPropertySet = new Set(textPropertyNames);
 
-  // A literal 'type' property is dropped here; full clash resolution
-  // (value-wins + warning per REQ-F-021) lands in task-013. The mapped-field
-  // key names are excluded whenever the resolver actually populated them, so
-  // an unrelated same-named property can't silently overwrite a resolved
-  // title/timestamp/tags value in the frontmatter object below.
-  const mappedFieldKeys = new Set<string>();
-  if (resolved.title !== undefined) mappedFieldKeys.add('title');
-  if (resolved.timestamp !== undefined) mappedFieldKeys.add('timestamp');
-  if (resolved.tags !== undefined) mappedFieldKeys.add('tags');
+  // Mapped-field and clash-resolution key names are excluded whenever
+  // they were actually populated above, so an unrelated same-named
+  // property can't silently overwrite a resolved value in the frontmatter
+  // object below.
+  const reservedKeys = new Set<string>(['type']);
+  if (hasTypeClash) reservedKeys.add('type_property');
+  if (resolved.title !== undefined) reservedKeys.add('title');
+  if (resolved.timestamp !== undefined) reservedKeys.add('timestamp');
+  if (resolved.tags !== undefined) reservedKeys.add('tags');
 
   const remainingKeys = Object.keys(properties)
-    .filter((key) => key !== 'type')
+    .filter((key) => !reservedKeys.has(key))
     .filter((key) => !resolved.consumedProperties.has(key))
-    .filter((key) => !mappedFieldKeys.has(key))
     .filter((key) => !textPropertySet.has(key))
     .sort(compareStrings);
 
