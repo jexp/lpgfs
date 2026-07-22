@@ -54,6 +54,8 @@ function createMockDb(labels: string[] = []): DatabaseConnection {
 interface MockNode {
   elementId: string;
   properties: Record<string, unknown>;
+  /** Full label set for this node; defaults to just the queried label. */
+  labels?: string[];
 }
 
 /**
@@ -215,7 +217,11 @@ function createMockDbMarkdown(
         const label = labelMatch[1]!;
         const nodes = nodesByLabel[label] || [];
         return Promise.resolve({
-          records: nodes.map((n) => ({ elementId: n.elementId, properties: n.properties })),
+          records: nodes.map((n) => ({
+            elementId: n.elementId,
+            properties: n.properties,
+            labels: n.labels ?? [label],
+          })),
         });
       }
 
@@ -2903,6 +2909,106 @@ describe('markdown mode', () => {
       const result = await read('/Character/odysseus.md', ctx);
 
       expect(result.content).toContain('[[Place/ithaca]]');
+    });
+  });
+
+  describe('multi-label nodes (first-label-wins, REQ-F-014)', () => {
+    // Real Neo4j returns this node from `MATCH (n:Hero)` AND `MATCH (n:Character)`
+    // since it carries both labels; the mock buckets mirror that by listing the
+    // same node under both label keys.
+    const multiLabelNode: MockNode = {
+      elementId: '4:m:0',
+      properties: {},
+      labels: ['Hero', 'Character'],
+    };
+    const sanitizedFile = '4_m_0.md';
+
+    it('appears under exactly one label listing (alphabetically-first) when mode.markdown.labels is unset', async () => {
+      const db = createMockDbMarkdown(['Hero', 'Character'], {
+        Hero: [multiLabelNode],
+        Character: [multiLabelNode],
+      });
+      const ctx = createCtx(markdownConfig(), db);
+
+      expect(await readdir('/Hero', ctx)).toEqual([]);
+      expect(await readdir('/Character', ctx)).toEqual([{ name: sanitizedFile, type: 'file' }]);
+    });
+
+    it('appears under the first label from mode.markdown.labels order when configured', async () => {
+      const db = createMockDbMarkdown(['Hero', 'Character'], {
+        Hero: [multiLabelNode],
+        Character: [multiLabelNode],
+      });
+      const ctx = createCtx(markdownConfig({ labels: ['Hero', 'Character'] }), db);
+
+      expect(await readdir('/Hero', ctx)).toEqual([{ name: sanitizedFile, type: 'file' }]);
+      expect(await readdir('/Character', ctx)).toEqual([]);
+    });
+
+    it('getattr/read succeed on the chosen label path and throw ENOENT on the non-chosen label path', async () => {
+      const db = createMockDbMarkdown(
+        ['Hero', 'Character'],
+        { Hero: [multiLabelNode], Character: [multiLabelNode] },
+        { '4:m:0': { labels: ['Hero', 'Character'], properties: {} } }
+      );
+      const ctx = createCtx(markdownConfig(), db);
+
+      // Chosen label is alphabetically-first: Character.
+      const stat = await getattr(`/Character/${sanitizedFile}`, ctx);
+      expect(stat.type).toBe('file');
+      const result = await read(`/Character/${sanitizedFile}`, ctx);
+      expect(result.content).toContain('type: Character');
+
+      await expect(getattr(`/Hero/${sanitizedFile}`, ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+      await expect(read(`/Hero/${sanitizedFile}`, ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('getattr/read succeed under the configured first label instead of the alphabetical default', async () => {
+      const db = createMockDbMarkdown(
+        ['Hero', 'Character'],
+        { Hero: [multiLabelNode], Character: [multiLabelNode] },
+        { '4:m:0': { labels: ['Hero', 'Character'], properties: {} } }
+      );
+      const ctx = createCtx(markdownConfig({ labels: ['Hero', 'Character'] }), db);
+
+      const stat = await getattr(`/Hero/${sanitizedFile}`, ctx);
+      expect(stat.type).toBe('file');
+      const result = await read(`/Hero/${sanitizedFile}`, ctx);
+      expect(result.content).toContain('type: Hero');
+
+      await expect(getattr(`/Character/${sanitizedFile}`, ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('renders a link to a multi-label target at its chosen-label path regardless of the raw target label order', async () => {
+      const db = createMockDbMarkdown(
+        ['Character'],
+        { Character: [{ elementId: '4:n:0', properties: {} }] },
+        {
+          '4:n:0': {
+            labels: ['Character'],
+            properties: {},
+            outRows: [
+              // Two different relationships return the multi-label target's
+              // labels in opposite orders; both must still resolve to the
+              // same chosen-label link.
+              { relType: 'ALLY_OF', targetLabels: ['Hero', 'Character'], targetElementId: '4:m:1', targetProperties: {} },
+              { relType: 'RIVAL_OF', targetLabels: ['Character', 'Hero'], targetElementId: '4:m:1', targetProperties: {} },
+            ],
+          },
+        }
+      );
+      const ctx = createCtx(markdownConfig(), db);
+
+      const result = await read('/Character/4_n_0.md', ctx);
+
+      expect(result.content).toContain('[[Character/4_m_1]]');
+      expect(result.content).not.toContain('[[Hero/4_m_1]]');
     });
   });
 

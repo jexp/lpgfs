@@ -12,7 +12,13 @@ import {
   listNodesForMarkdownIndex,
 } from './queries.js';
 import type { DatabaseConnection } from './connection.js';
-import { DEFAULT_CONFIG, type ConfigSchema, type MarkdownFieldsConfig, type TextPropertiesConfig } from '../types/index.js';
+import {
+  DEFAULT_CONFIG,
+  DEFAULT_MARKDOWN_MODE_CONFIG,
+  type ConfigSchema,
+  type MarkdownFieldsConfig,
+  type TextPropertiesConfig,
+} from '../types/index.js';
 
 function config(overrides: Partial<ConfigSchema> = {}): ConfigSchema {
   return { ...DEFAULT_CONFIG, mode: { type: 'markdown' }, ...overrides };
@@ -245,5 +251,101 @@ describe('listNodesForMarkdownIndex', () => {
 
     const cypher = (db.executeQuery as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
     expect(cypher).toContain('coalesce(n.`epithet`) AS title');
+  });
+
+  it('excludes a multi-label node whose chosen label is not the queried one', async () => {
+    const db = mockDb([
+      {
+        elementId: '4:a:10',
+        properties: { name: 'odysseus' },
+        labels: ['Hero', 'Character'],
+        title: null,
+        timestamp: null,
+        rawDescription: null,
+      },
+    ]);
+
+    const results = await listNodesForMarkdownIndex(db, 'Hero', fieldsConfig(), textPropertiesConfig(), config());
+
+    // Alphabetically, 'Character' < 'Hero', so this node's chosen label is
+    // 'Character' and it must not be counted under 'Hero'.
+    expect(results).toEqual([]);
+  });
+
+  it('includes a multi-label node under its chosen label', async () => {
+    const db = mockDb([
+      {
+        elementId: '4:a:11',
+        properties: { name: 'odysseus' },
+        labels: ['Hero', 'Character'],
+        title: null,
+        timestamp: null,
+        rawDescription: null,
+      },
+    ]);
+
+    const results = await listNodesForMarkdownIndex(db, 'Character', fieldsConfig(), textPropertiesConfig(), config());
+
+    expect(results).toHaveLength(1);
+  });
+
+  it('respects mode.markdown.labels ordering for the chosen label when listing', async () => {
+    const db = mockDb([
+      {
+        elementId: '4:a:12',
+        properties: { name: 'odysseus' },
+        labels: ['Character', 'Hero'],
+        title: null,
+        timestamp: null,
+        rawDescription: null,
+      },
+    ]);
+    const cfg = config({
+      mode: { type: 'markdown', markdown: { ...DEFAULT_MARKDOWN_MODE_CONFIG, labels: ['Hero', 'Character'] } },
+    });
+
+    const underHero = await listNodesForMarkdownIndex(db, 'Hero', fieldsConfig(), textPropertiesConfig(), cfg);
+    const underCharacter = await listNodesForMarkdownIndex(
+      db,
+      'Character',
+      fieldsConfig(),
+      textPropertiesConfig(),
+      cfg
+    );
+
+    expect(underHero).toHaveLength(1);
+    expect(underCharacter).toHaveLength(0);
+  });
+
+  it('prefers the configured label order even when the alphabetically-first label is excluded from mode.markdown.labels', async () => {
+    // Alphabetically, 'Character' < 'Hero', so an unconfigured lookup would
+    // pick 'Character'. Here mode.markdown.labels only mounts 'Hero', so the
+    // node must resolve to 'Hero' — the configured order wins outright, not
+    // merely as a tie-breaker among mounted labels only.
+    const db = mockDb([
+      {
+        elementId: '4:a:13',
+        properties: { name: 'odysseus' },
+        labels: ['Character', 'Hero'],
+        title: null,
+        timestamp: null,
+        rawDescription: null,
+      },
+    ]);
+    const cfg = config({
+      mode: { type: 'markdown', markdown: { ...DEFAULT_MARKDOWN_MODE_CONFIG, labels: ['Hero'] } },
+    });
+
+    const underHero = await listNodesForMarkdownIndex(db, 'Hero', fieldsConfig(), textPropertiesConfig(), cfg);
+    const underCharacter = await listNodesForMarkdownIndex(
+      db,
+      'Character',
+      fieldsConfig(),
+      textPropertiesConfig(),
+      cfg
+    );
+
+    expect(underHero).toHaveLength(1);
+    expect(underCharacter).toHaveLength(0);
   });
 });

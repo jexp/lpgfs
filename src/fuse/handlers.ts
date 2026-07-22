@@ -28,6 +28,7 @@ import {
   getRelationshipProperties,
   getNodeForMarkdown,
   groupRelationshipsForMarkdown,
+  chooseNodeLabel,
 } from "../db/queries.js";
 import {
   parsePath,
@@ -452,6 +453,10 @@ async function readdirMarkdownRoot(
 
 /**
  * Label directory listing for markdown mode: one `<name>.md` file per node.
+ *
+ * A multi-label node only appears once, under its chosen label (REQ-F-014),
+ * so nodes whose chosen label isn't this one are filtered out rather than
+ * duplicated across every mounted label they carry.
  */
 async function readdirMarkdownLabel(
   label: string,
@@ -459,7 +464,11 @@ async function readdirMarkdownLabel(
 ): Promise<DirectoryEntry[]> {
   await assertLabelAllowed(label, ctx);
   const nodes = await getNodesByLabel(ctx.db, label, ctx.config, ctx.cache);
-  return nodes.map((node) => ({ name: `${node.name}.md`, type: "file" }));
+  const configuredLabelOrder = ctx.config.mode.markdown?.labels;
+  const chosen = nodes.filter(
+    (node) => chooseNodeLabel(node.labels, configuredLabelOrder) === label,
+  );
+  return chosen.map((node) => ({ name: `${node.name}.md`, type: "file" }));
 }
 
 /**
@@ -489,6 +498,10 @@ async function readdirMarkdown(
  * file. Shared by getattrMarkdown (for the size) and readMarkdown (which
  * relies on this hitting the cache set up by the preceding getattr call,
  * so the node is never rendered twice for one open/read cycle).
+ *
+ * A multi-label node resolves only under its chosen label (REQ-F-014): a
+ * request for the same node under a non-chosen label throws ENOENT, so the
+ * node is never reachable at more than one `/<Label>/<name>.md` path.
  */
 async function renderMarkdownNode(
   label: string,
@@ -497,8 +510,13 @@ async function renderMarkdownNode(
 ): Promise<string> {
   await assertLabelAllowed(label, ctx);
 
+  const configuredLabelOrder = ctx.config.mode.markdown?.labels;
   const nodes = await getNodesByLabel(ctx.db, label, ctx.config, ctx.cache);
-  const node = nodes.find((n) => n.name === nodeName);
+  const node = nodes.find(
+    (n) =>
+      n.name === nodeName &&
+      chooseNodeLabel(n.labels, configuredLabelOrder) === label,
+  );
   if (!node) {
     throw new LpgfsError(
       `Node not found: ${label}/${nodeName}`,
@@ -527,8 +545,19 @@ async function renderMarkdownNode(
     (group) => group.links,
   );
 
+  // Reorders labels so the chosen one is first: renderNodeMarkdown treats
+  // labels[0] as authoritative for both the `type:` key and per-label
+  // textProperties overrides, and that must agree with the directory the
+  // node is actually mounted under, not whatever order Neo4j returned
+  // labels(n) in.
+  const chosenLabel = chooseNodeLabel(nodeData.labels, configuredLabelOrder);
+  const orderedLabels = [
+    chosenLabel,
+    ...nodeData.labels.filter((l) => l !== chosenLabel),
+  ];
+
   const content = renderNodeMarkdown({
-    labels: nodeData.labels,
+    labels: orderedLabels,
     properties: nodeData.properties,
     relationships,
     config: markdownConfig,

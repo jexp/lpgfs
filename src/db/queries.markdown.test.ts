@@ -7,8 +7,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { groupRelationshipsForMarkdown, type MarkdownRelationshipRow } from './queries.js';
-import { DEFAULT_CONFIG, type ConfigSchema } from '../types/index.js';
+import { groupRelationshipsForMarkdown, chooseNodeLabel, type MarkdownRelationshipRow } from './queries.js';
+import { DEFAULT_CONFIG, DEFAULT_MARKDOWN_MODE_CONFIG, type ConfigSchema } from '../types/index.js';
 
 function config(overrides: Partial<ConfigSchema> = {}): ConfigSchema {
   return { ...DEFAULT_CONFIG, ...overrides };
@@ -129,5 +129,58 @@ describe('groupRelationshipsForMarkdown', () => {
     const worksAt = groups.find((g) => g.key === 'in_WORKS_AT')!.links[0]!;
     expect(knows.targetName).toBe('alice');
     expect(worksAt.targetName).toBe('alice_4_p_2');
+  });
+
+  it('resolves a link to a multi-label target under its chosen label, not the raw label order', () => {
+    const rows: MarkdownRelationshipRow[] = [
+      row({ targetElementId: '4:h:0', targetLabels: ['Hero', 'Character'], targetProperties: {} }),
+    ];
+
+    const groups = groupRelationshipsForMarkdown(rows, config());
+
+    expect(groups[0]!.links[0]!.targetLabel).toBe('Character');
+  });
+
+  it('resolves a link to a multi-label target under the first configured label when mode.markdown.labels is set', () => {
+    const rows: MarkdownRelationshipRow[] = [
+      row({ targetElementId: '4:h:0', targetLabels: ['Character', 'Hero'], targetProperties: {} }),
+    ];
+    const cfg = config({
+      mode: {
+        type: 'markdown',
+        markdown: { ...DEFAULT_MARKDOWN_MODE_CONFIG, labels: ['Hero', 'Character'] },
+      },
+    });
+
+    const groups = groupRelationshipsForMarkdown(rows, cfg);
+
+    expect(groups[0]!.links[0]!.targetLabel).toBe('Hero');
+  });
+});
+
+describe('chooseNodeLabel', () => {
+  it('picks the alphabetically-first label when no configured order is given', () => {
+    expect(chooseNodeLabel(['Hero', 'Character'])).toBe('Character');
+  });
+
+  it('picks the first label from the configured order that the node actually carries', () => {
+    expect(chooseNodeLabel(['Hero', 'Character'], ['Hero', 'Character'])).toBe('Hero');
+    expect(chooseNodeLabel(['Hero', 'Character'], ['Place', 'Character', 'Hero'])).toBe('Character');
+  });
+
+  it('falls back to alphabetical order when none of the node labels appear in the configured order', () => {
+    expect(chooseNodeLabel(['Hero', 'Character'], ['Place', 'Creature'])).toBe('Character');
+  });
+
+  it('is deterministic given the same inputs', () => {
+    const a = chooseNodeLabel(['Zeta', 'Alpha', 'Mu']);
+    const b = chooseNodeLabel(['Zeta', 'Alpha', 'Mu']);
+    expect(a).toBe(b);
+    expect(a).toBe('Alpha');
+  });
+
+  it('returns the single label unchanged for a single-label node', () => {
+    expect(chooseNodeLabel(['Character'])).toBe('Character');
+    expect(chooseNodeLabel(['Character'], ['Hero'])).toBe('Character');
   });
 });

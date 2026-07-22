@@ -335,6 +335,8 @@ export interface NodeQueryResult {
   elementId: string;
   /** Node properties */
   properties: Properties;
+  /** All of the node's labels (not just the one it was queried under) */
+  labels: string[];
 }
 
 /**

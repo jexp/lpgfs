@@ -80,6 +80,24 @@ function getPropertyName(label: string, config: ConfigSchema): string | undefine
 }
 
 /**
+ * Deterministically picks a single rendering label for a multi-label node
+ * (REQ-F-014). If `mode.markdown.labels` is configured, its ordering is an
+ * explicit user choice, so the first label in that list that the node
+ * actually carries wins; otherwise (or if none of the node's labels appear
+ * in that list) the alphabetically-first of the node's own labels wins.
+ * Applied identically wherever a multi-label node's identity matters
+ * (label-listing, node lookup, relationship-link target rendering) so it is
+ * never duplicated across the labels it carries.
+ */
+export function chooseNodeLabel(nodeLabels: string[], configuredLabelOrder?: string[]): string {
+  if (configuredLabelOrder && configuredLabelOrder.length > 0) {
+    const firstConfigured = configuredLabelOrder.find((label) => nodeLabels.includes(label));
+    if (firstConfigured !== undefined) return firstConfigured;
+  }
+  return [...nodeLabels].sort()[0] ?? '';
+}
+
+/**
  * Get all nodes of a given label with display names.
  *
  * @param db Database connection
@@ -125,8 +143,9 @@ export async function getNodesByLabel(
   const result = await db.executeQuery<{
     elementId: string;
     properties: Properties;
+    labels?: string[];
   }>(
-    `MATCH (n:\`${label}\`) RETURN elementId(n) AS elementId, properties(n) AS properties`
+    `MATCH (n:\`${label}\`) RETURN elementId(n) AS elementId, properties(n) AS properties, labels(n) AS labels`
   );
 
   // Handle empty result
@@ -163,6 +182,9 @@ export async function getNodesByLabel(
       baseName,
       elementId: record.elementId,
       properties: record.properties,
+      // Falls back to just the queried label when a caller's mocked
+      // result omits labels(n) (real Cypher always returns it).
+      labels: record.labels ?? [label],
     };
   });
 
@@ -178,6 +200,7 @@ export async function getNodesByLabel(
     name: resolvedNames[index]!,
     elementId: item.elementId,
     properties: item.properties,
+    labels: item.labels,
   }));
 
   // Store in cache
@@ -634,6 +657,11 @@ function compareByLabelThenName(a: MarkdownRelationshipLink, b: MarkdownRelation
  * relationships (not just within one type/direction group), since two
  * differently-typed links pointing at same-named nodes of the same label
  * would otherwise render distinct link targets to the identical path.
+ *
+ * A multi-label target resolves via {@link chooseNodeLabel} (REQ-F-014), not
+ * the raw `targetLabels[0]` returned by Neo4j, so a link to a multi-label
+ * node always points at that node's one chosen-label path regardless of
+ * which order this particular relationship's target labels came back in.
  */
 export function groupRelationshipsForMarkdown(
   rows: MarkdownRelationshipRow[],
@@ -642,7 +670,10 @@ export function groupRelationshipsForMarkdown(
   const mode = config.mode.type;
 
   const links: MarkdownRelationshipLink[] = rows.map((row) => {
-    const targetLabel = row.targetLabels[0] || 'Unknown';
+    const targetLabel =
+      row.targetLabels.length > 0
+        ? chooseNodeLabel(row.targetLabels, config.mode.markdown?.labels)
+        : 'Unknown';
     const namingStrategy = getNamingStrategy(targetLabel, config);
     const propertyName = getPropertyName(targetLabel, config);
 
@@ -866,6 +897,7 @@ export function buildMarkdownIndexQuery(
   return `MATCH (n:\`${label}\`)
     RETURN elementId(n) AS elementId,
            properties(n) AS properties,
+           labels(n) AS labels,
            ${coalesceClause(titleFallbacks)} AS title,
            ${coalesceClause(timestampFallbacks)} AS timestamp,
            ${coalesceClause(textPropertyFallbacks)} AS rawDescription`;
@@ -874,6 +906,7 @@ export function buildMarkdownIndexQuery(
 interface RawMarkdownIndexRow {
   elementId: string;
   properties: Properties;
+  labels?: string[];
   title: PropertyValue;
   timestamp: PropertyValue;
   rawDescription: PropertyValue;
@@ -906,7 +939,16 @@ export async function listNodesForMarkdownIndex(
   const cypher = buildMarkdownIndexQuery(label, titleFallbacks, timestampFallbacks, textPropertyFallbacks);
   const result = await db.executeQuery<RawMarkdownIndexRow>(cypher);
 
-  if (result.records.length === 0) {
+  // A multi-label node only counts toward its chosen label's listing
+  // (REQ-F-014), not every label it carries, so index/log generation built
+  // on this projection never lists (or double-counts) it under more than
+  // one label.
+  const configuredLabelOrder = config.mode.markdown?.labels;
+  const records = result.records.filter(
+    (record) => chooseNodeLabel(record.labels ?? [label], configuredLabelOrder) === label
+  );
+
+  if (records.length === 0) {
     if (cache) cache.set(key, []);
     return [];
   }
@@ -919,7 +961,7 @@ export async function listNodesForMarkdownIndex(
   const namingStrategy = getNamingStrategy(label, config);
   const propertyName = getPropertyName(label, config);
 
-  const items = result.records.map((record) => {
+  const items = records.map((record) => {
     let baseName: string;
     if (namingStrategy === 'property' && propertyName) {
       const propValue = record.properties[propertyName];

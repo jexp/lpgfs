@@ -196,7 +196,7 @@ tasks:
       under a single deterministic label folder (alphabetically first, or
       first-in-config if mode.markdown.labels defines an order), rather
       than duplicating content across every mounted label they belong to.
-    status: pending
+    status: completed
     dependencies:
       - task-008
     acceptance_criteria:
@@ -204,7 +204,7 @@ tasks:
       - "The chosen label is deterministic given the same config and graph state"
       - "Links from other nodes to a multi-label node resolve to that same chosen Label/name path"
       - "Unit test covers a multi-label node with both labels mounted"
-    completed_at: null
+    completed_at: "2026-07-22T21:33:04Z"
 
   - id: task-010
     title: "Extend listing queries with title/timestamp/description projections"
