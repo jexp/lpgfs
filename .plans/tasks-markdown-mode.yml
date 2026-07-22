@@ -257,7 +257,8 @@ tasks:
       omitted; decide and implement the behavior for zero resolvable
       timestamps across the whole graph (stub line vs. omission) and
       document the choice.
-    status: pending
+    status: completed
+    completed_at: "2026-07-23T01:10:00Z"
     dependencies:
       - task-010
       - task-009
@@ -267,7 +268,6 @@ tasks:
       - "The zero-timestamps-in-graph case renders the documented fallback behavior (stub line or omission) consistently"
       - "getattr size matches rendered content; caching follows the same TTL as index.md"
       - "Unit tests cover multi-date grouping, ties within a date, and the zero-timestamp case"
-    completed_at: null
 
   - id: task-013
     title: "Resolve type-key clash and finalize frontmatter key-order edge cases"

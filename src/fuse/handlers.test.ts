@@ -37,6 +37,7 @@ import {
 } from '../types/index.js';
 import { Cache } from '../cache/index.js';
 import { CONFIG_FILENAME, PROPERTIES_FILENAME } from '../core/path-parser.js';
+import { EMPTY_LOG_STUB } from '../markdown/log.js';
 
 // Mock database connection
 function createMockDb(labels: string[] = []): DatabaseConnection {
@@ -56,6 +57,13 @@ interface MockNode {
   properties: Record<string, unknown>;
   /** Full label set for this node; defaults to just the queried label. */
   labels?: string[];
+  /** Raw title/timestamp/rawDescription projection columns, for
+   * listNodesForMarkdownIndex mock responses (root /log.md tests).
+   * Default to `null`, matching what a real coalesce() with no matching
+   * property returns. */
+  title?: unknown;
+  timestamp?: unknown;
+  rawDescription?: unknown;
 }
 
 /**
@@ -219,18 +227,20 @@ function createMockDbMarkdown(
         return Promise.resolve({
           records: nodes.map((n) => {
             const props = n.properties as Record<string, unknown>;
+            // Only listNodesForMarkdownIndex's query selects these columns
+            // (its RETURN clause includes "AS title"), but supplying them
+            // unconditionally here is harmless for the plain
+            // getNodesByLabel-shaped queries above, which just ignore the
+            // extra fields. A fixture may set title/timestamp/rawDescription
+            // explicitly (n.title etc.) to override the property-fallback
+            // computation below.
             return {
               elementId: n.elementId,
               properties: n.properties,
               labels: n.labels ?? [label],
-              // Only listNodesForMarkdownIndex's query selects these
-              // columns (its RETURN clause includes "AS title"), but
-              // supplying them unconditionally here is harmless for the
-              // plain getNodesByLabel-shaped queries above, which just
-              // ignore the extra fields.
-              title: (props.title ?? props.name ?? null) as unknown,
-              timestamp: (props.updated ?? props.lastUpdated ?? props.modified ?? props.created ?? null) as unknown,
-              rawDescription: (props.summary ?? props.text ?? props.content ?? null) as unknown,
+              title: (n.title ?? props.title ?? props.name ?? null) as unknown,
+              timestamp: (n.timestamp ?? props.updated ?? props.lastUpdated ?? props.modified ?? props.created ?? null) as unknown,
+              rawDescription: (n.rawDescription ?? props.summary ?? props.text ?? props.content ?? null) as unknown,
             };
           }),
         });
@@ -2920,6 +2930,140 @@ describe('markdown mode', () => {
       const result = await read('/Character/odysseus.md', ctx);
 
       expect(result.content).toContain('[[Place/ithaca]]');
+    });
+  });
+
+  describe('root /log.md generation (task-012)', () => {
+    function placeConfig(overrides: Partial<ConfigSchema['mode']['markdown']> = {}): ConfigSchema {
+      const config = markdownConfig(overrides);
+      config.naming.overrides = {
+        ...config.naming.overrides,
+        nodes: { ...config.naming.overrides?.nodes, Place: { property: 'name' } },
+      };
+      return config;
+    }
+
+    it('merges nodes across every rendered label, grouped by date (## YYYY-MM-DD, newest first)', async () => {
+      const db = createMockDbMarkdown(['Character', 'Place'], {
+        Character: [
+          { elementId: '4:a:0', properties: { name: 'odysseus' }, timestamp: '2026-03-10T00:00:00.000Z' },
+        ],
+        Place: [{ elementId: '4:a:1', properties: { name: 'ithaca' }, timestamp: '2026-01-05T00:00:00.000Z' }],
+      });
+      const ctx = createCtx(placeConfig(), db);
+
+      const stat = await getattr('/log.md', ctx);
+      expect(stat.type).toBe('file');
+
+      const result = await read('/log.md', ctx);
+      expect(Buffer.byteLength(result.content, 'utf8')).toBe(stat.size);
+
+      const marchIdx = result.content.indexOf('## 2026-03-10');
+      const janIdx = result.content.indexOf('## 2026-01-05');
+      expect(marchIdx).toBeGreaterThan(-1);
+      expect(janIdx).toBeGreaterThan(-1);
+      expect(marchIdx).toBeLessThan(janIdx);
+      expect(result.content).toContain('- **Update** [[Character/odysseus]]');
+      expect(result.content).toContain('- **Update** [[Place/ithaca]]');
+    });
+
+    it('excludes nodes without a resolvable timestamp, without affecting other entries', async () => {
+      const db = createMockDbMarkdown(['Character'], {
+        Character: [
+          { elementId: '4:a:0', properties: { name: 'odysseus' }, timestamp: '2026-01-05T00:00:00.000Z' },
+          { elementId: '4:a:1', properties: { name: 'telemachus' } }, // no timestamp -> null
+        ],
+      });
+      const ctx = createCtx(markdownConfig(), db);
+
+      const result = await read('/log.md', ctx);
+      expect(result.content).toContain('odysseus');
+      expect(result.content).not.toContain('telemachus');
+    });
+
+    it('renders the documented stub when zero nodes anywhere resolve a timestamp', async () => {
+      const db = createMockDbMarkdown(['Character'], {
+        Character: [{ elementId: '4:a:0', properties: { name: 'odysseus' } }],
+      });
+      const ctx = createCtx(markdownConfig(), db);
+
+      const stat = await getattr('/log.md', ctx);
+      const result = await read('/log.md', ctx);
+
+      expect(result.content).toBe(EMPTY_LOG_STUB);
+      expect(stat.size).toBe(Buffer.byteLength(EMPTY_LOG_STUB, 'utf8'));
+      expect(result.content).not.toContain('##');
+    });
+
+    it('respects mode.markdown.labels: only allow-listed labels contribute entries', async () => {
+      const db = createMockDbMarkdown(['Character', 'Place'], {
+        Character: [
+          { elementId: '4:a:0', properties: { name: 'odysseus' }, timestamp: '2026-01-05T00:00:00.000Z' },
+        ],
+        Place: [{ elementId: '4:a:1', properties: { name: 'ithaca' }, timestamp: '2026-02-01T00:00:00.000Z' }],
+      });
+      const ctx = createCtx(placeConfig({ labels: ['Character'] }), db);
+
+      const result = await read('/log.md', ctx);
+      expect(result.content).toContain('odysseus');
+      expect(result.content).not.toContain('ithaca');
+    });
+
+    it('supports the markdown link style', async () => {
+      const db = createMockDbMarkdown(['Character'], {
+        Character: [
+          { elementId: '4:a:0', properties: { name: 'odysseus' }, timestamp: '2026-01-05T00:00:00.000Z' },
+        ],
+      });
+      const ctx = createCtx(markdownConfig({ linkStyle: 'markdown' }), db);
+
+      const result = await read('/log.md', ctx);
+      expect(result.content).toContain('- **Update** /Character/odysseus.md');
+    });
+
+    it('a multi-label node contributes only one entry, under its chosen label (REQ-F-014)', async () => {
+      const db = createMockDbMarkdown(['Character', 'Place'], {
+        Character: [
+          {
+            elementId: '4:a:0',
+            properties: { name: 'delphi' },
+            labels: ['Place', 'Character'],
+            timestamp: '2026-01-05T00:00:00.000Z',
+          },
+        ],
+        Place: [
+          {
+            elementId: '4:a:0',
+            properties: { name: 'delphi' },
+            labels: ['Place', 'Character'],
+            timestamp: '2026-01-05T00:00:00.000Z',
+          },
+        ],
+      });
+      const ctx = createCtx(placeConfig({ labels: ['Place', 'Character'] }), db);
+
+      const result = await read('/log.md', ctx);
+      const occurrences = result.content.split('delphi').length - 1;
+      expect(occurrences).toBe(1);
+      expect(result.content).toContain('[[Place/delphi]]');
+    });
+
+    it('caches under the label-listing TTL bucket and does not re-query on a second read', async () => {
+      const db = createMockDbMarkdown(['Character'], {
+        Character: [
+          { elementId: '4:a:0', properties: { name: 'odysseus' }, timestamp: '2026-01-05T00:00:00.000Z' },
+        ],
+      });
+      const ctx = createCtx(markdownConfig(), db);
+
+      await getattr('/log.md', ctx);
+      const callsAfterGetattr = (db.executeQuery as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      const result = await read('/log.md', ctx);
+      const callsAfterRead = (db.executeQuery as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      expect(callsAfterRead).toBe(callsAfterGetattr);
+      expect(result.content).toContain('odysseus');
     });
   });
 

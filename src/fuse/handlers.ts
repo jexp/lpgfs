@@ -47,6 +47,7 @@ import {
 } from "../markdown/renderer.js";
 import { propertyFallbackFieldResolver } from "../markdown/fields.js";
 import { renderRootIndex, renderLabelIndex } from "../markdown/index-renderer.js";
+import { renderRootLog, type LogSourceEntry } from "../markdown/log.js";
 
 /**
  * Context for FUSE handlers containing shared resources.
@@ -410,10 +411,11 @@ async function readdirDirection(
 // Markdown Mode Handlers
 //
 // Active when ctx.config.mode.type === 'markdown'. Dispatches via
-// parseMarkdownPath instead of the classic path-parser. Generated files
-// (/index.md, /log.md, /<Label>/index.md) are not yet implemented, so
-// their path-context types (root-index/root-log/label-index) always
-// throw ENOENT here for now.
+// parseMarkdownPath instead of the classic path-parser. /log.md is
+// generated (see renderRootLogFile below); /index.md and /<Label>/index.md
+// are not yet implemented, so their path-context types (root-index/
+// label-index) still throw ENOENT here. Root readdir does not yet list
+// index.md/log.md as entries -- that's task-019, once index.md also lands.
 // =============================================================================
 
 /**
@@ -439,8 +441,9 @@ async function assertLabelAllowed(
 /**
  * Resolves the set of labels rendered in markdown mode: every label in the
  * database, filtered down to mode.markdown.labels when that allow-list is
- * configured. Shared by readdirMarkdownRoot and the root index.md
- * generator so both agree on exactly which labels are "rendered".
+ * configured. Shared by readdirMarkdownRoot, the root index.md generator,
+ * and the root log.md generator so all three agree on exactly which
+ * labels are "rendered".
  */
 async function getRenderedLabels(ctx: HandlerContext): Promise<string[]> {
   const labels = await getLabels(ctx.db, ctx.cache);
@@ -634,6 +637,51 @@ async function renderMarkdownLabelIndex(
 }
 
 /**
+ * Renders (and caches under the same TTL bucket as label listings, per
+ * REQ-F-063) the virtual root /log.md file: date-grouped links to every
+ * rendered node with a resolvable mapped timestamp, merged across every
+ * rendered label.
+ *
+ * Reuses listNodesForMarkdownIndex per label (task-010) rather than
+ * issuing any per-node query, per REQ-F-064; that query already applies
+ * multi-label dedup (a node only appears once, under its chosen label,
+ * REQ-F-014) and already omits nodes with no resolvable timestamp
+ * (`timestamp: undefined`), so no further filtering/dedup is needed here
+ * beyond merging each label's results into one flat list.
+ */
+async function renderRootLogFile(ctx: HandlerContext): Promise<string> {
+  const key = cacheKey.markdownLog();
+  const cached = ctx.cache.get<string>(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const markdownConfig =
+    ctx.config.mode.markdown ?? DEFAULT_MARKDOWN_MODE_CONFIG;
+  const labels = await getRenderedLabels(ctx);
+
+  const entries: LogSourceEntry[] = [];
+  for (const label of labels) {
+    const nodes = await listNodesForMarkdownIndex(
+      ctx.db,
+      label,
+      markdownConfig.fields,
+      markdownConfig.textProperties,
+      ctx.config,
+      ctx.cache,
+    );
+    for (const node of nodes) {
+      if (node.timestamp === undefined) continue;
+      entries.push({ label, name: node.name, timestamp: node.timestamp });
+    }
+  }
+
+  const content = renderRootLog(entries, markdownConfig.linkStyle);
+  ctx.cache.set(key, content);
+  return content;
+}
+
+/**
  * Markdown-mode getattr dispatch.
  */
 async function getattrMarkdown(
@@ -688,6 +736,17 @@ async function getattrMarkdown(
       };
     }
 
+    case "root-log": {
+      const content = await renderRootLogFile(ctx);
+      return {
+        type: "file",
+        size: Buffer.byteLength(content, "utf8"),
+        mtime: now,
+        atime: now,
+        ctime: now,
+      };
+    }
+
     default:
       throw new LpgfsError(
         `Not implemented in markdown mode: ${path}`,
@@ -720,9 +779,9 @@ function sliceMarkdownContent(
 }
 
 /**
- * Markdown-mode read dispatch. Only `/<Label>/<name>.md` node files are
- * readable; root/label directories and the not-yet-implemented generated
- * files (root-index/root-log/label-index) are rejected with ENOENT.
+ * Markdown-mode read dispatch. `/<Label>/<name>.md` node files and the
+ * generated `/index.md`, `/<Label>/index.md`, and `/log.md` are readable;
+ * root/label directories are rejected with ENOENT.
  */
 async function readMarkdown(
   path: string,
@@ -749,6 +808,11 @@ async function readMarkdown(
 
     case "label-index": {
       const content = await renderMarkdownLabelIndex(pathContext.label!, ctx);
+      return sliceMarkdownContent(content, offset, length);
+    }
+
+    case "root-log": {
+      const content = await renderRootLogFile(ctx);
       return sliceMarkdownContent(content, offset, length);
     }
 
