@@ -94,7 +94,7 @@ A test dataset — an Odyssey wiki of 20 hand-authored markdown fixture files pl
 
 - REQ-F-030: All write operations continue returning `EROFS`.
 - REQ-F-031: Path parsing for markdown mode produces its own `PathContext` shape (root/label/markdown-file) and rejects deeper paths with `ENOENT`.
-- REQ-F-032: Rendered markdown is cached with the existing cache subsystem (properties + relationships TTLs); a node's markdown requires at most two queries (properties, relationships).
+- REQ-F-032: Rendered markdown is cached with the existing cache subsystem; a node's markdown (properties + all relationships, all types/directions) is fetched with exactly **one** Cypher query, using a `COLLECT { }` subquery per relationship type (or a single pattern-comprehension query returning raw `(relType, direction, targetLabel, targetName)` tuples) — sorting by relationship type and target label/name happens in TypeScript after the single round trip, not in Cypher, to keep the query itself simple and stable across relationship-type sets.
 
 **Odyssey example vault & validation**
 
@@ -106,7 +106,7 @@ A test dataset — an Odyssey wiki of 20 hand-authored markdown fixture files pl
 ### Non-Functional Requirements
 
 - REQ-NF-001: `classic` mode behavior and performance are unchanged (no regression in existing tests).
-- REQ-NF-002: Rendering one markdown file issues ≤2 Cypher queries (properties + relationships) with caching; label listing reuses existing node-list queries.
+- REQ-NF-002: Rendering one markdown file issues exactly 1 Cypher query (properties + all relationships in one round trip, per REQ-F-032) with caching; label listing reuses existing node-list queries.
 - REQ-NF-003: Deterministic output: identical graph + config always renders byte-identical files (stable key ordering, stable link ordering — targets sorted alphabetically).
 - REQ-NF-004: New code follows existing module layout (`src/markdown/` renderer + extensions in `src/core/`/`src/fuse/`), TypeScript strict, vitest unit tests colocated, try-catch-wrapped FUSE callbacks per AGENTS.md learnings.
 - REQ-NF-005: YAML frontmatter emitted via the existing `yaml` dependency (no new runtime deps).
@@ -115,7 +115,7 @@ A test dataset — an Odyssey wiki of 20 hand-authored markdown fixture files pl
 
 - **Path parser**: `src/core/path-parser.ts` currently encodes the classic hierarchy. Introduce a mode-aware parser (or a second parser selected at daemon startup) producing `{ type: 'root' | 'label' | 'mdfile', label?, nodeName? }`. Filenames must be stripped of `.md` before node lookup.
 - **Renderer module**: new `src/markdown/renderer.ts` — pure function `(properties, relationships, config) → string` for easy unit testing; frontmatter via `yaml.stringify` with explicit key ordering; wikilinks quoted to survive YAML; link-style strategy injected from config.
-- **Queries**: reuse `getNodeProperties` and `getRelationships`; relationship query already returns target label + display name needed for `Label/name` links. Verify incoming-relationship naming resolution reuses the target node's label naming override.
+- **Queries**: add a new single-query node fetch (e.g. `getNodeForMarkdown`) rather than reusing the separate `getNodeProperties` + `getRelationships` pair. Shape: `MATCH (n) WHERE elementId(n) = $elementId RETURN properties(n) AS props, labels(n) AS labels, COLLECT { MATCH (n)-[r]->(t) RETURN type(r) AS relType, 'OUT' AS direction, labels(t) AS targetLabels, elementId(t) AS targetElementId, properties(t) AS targetProps } + COLLECT { MATCH (n)<-[r]-(t) RETURN type(r) AS relType, 'IN' AS direction, labels(t) AS targetLabels, elementId(t) AS targetElementId, properties(t) AS targetProps } AS rels` (exact form to be finalized against a live EXPLAIN/PROFILE — a flat pattern-comprehension returning raw tuples is an acceptable equivalent if it profiles better). Grouping by relationship type/direction and sorting targets by label/name for deterministic output (REQ-NF-003) happens in TypeScript on the returned rows, not in Cypher — keeps the query shape stable regardless of which relationship types exist. The target's naming-strategy resolution (elementId vs. property, per-label overrides) is applied client-side using `targetLabels`/`targetProps`/`targetElementId`, same as the existing symlink-naming logic in classic mode.
 - **getattr sizing**: classic mode computes JSON size on stat; markdown mode must render (and cache) markdown at `getattr` time for correct sizes — cache the rendered string keyed by node elementId so `read` reuses it.
 - **Config**: extend `ConfigSchema` + `ConfigParser` validation with the `mode` section; defaults keep `classic`. CLI flag plumbs through `MountOptions`.
 - **Multi-label nodes**: existing queries are label-scoped; ensure a node with labels `[Hero, Character]` doesn't render twice when both labels are mounted (document v1 behavior: it appears under each mounted label — or dedupe; decide in implementation, test either way). *(flagged in Open Questions)*

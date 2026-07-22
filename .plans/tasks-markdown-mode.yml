@@ -120,20 +120,50 @@ tasks:
       - "Resolver is invoked through an interface the renderer depends on, not a hardcoded property lookup"
     completed_at: null
 
+  - id: task-018
+    title: "Add single-query node+relationships fetch for markdown rendering"
+    description: |
+      Add a new query in src/db/queries.ts (e.g. getNodeForMarkdown) that
+      fetches a node's properties, labels, and all relationships (both
+      directions, every type) in exactly one Cypher round trip, per
+      REQ-F-032/REQ-NF-002 — using a COLLECT { } subquery per direction (or
+      an equivalent pattern-comprehension form, whichever profiles better)
+      rather than the existing separate getNodeProperties + getRelationships
+      pair. Do NOT group, sort, or resolve target naming in Cypher: return
+      raw (relType, direction, targetLabels, targetElementId, targetProps)
+      tuples and do all grouping-by-type and target label/name sorting in
+      TypeScript, reusing the existing naming-strategy resolution logic
+      client-side for target names. Keep the query itself simple and
+      profile it (EXPLAIN/PROFILE) against a reasonably branching test node
+      before finalizing the exact Cypher form.
+    status: pending
+    dependencies:
+      - task-001
+    acceptance_criteria:
+      - "A single Cypher query returns a node's properties, labels, and every relationship (both directions, all types) with no per-relationship-type follow-up queries"
+      - "Grouping by relationship type/direction and sorting targets by label/name happens in TypeScript, not in the Cypher query"
+      - "Target naming-strategy resolution (elementId vs. property, per-label overrides) is applied client-side from the returned targetLabels/targetProps/targetElementId"
+      - "Query is validated with EXPLAIN/PROFILE against a fixture node with multiple relationship types/directions and documented as reasonably efficient (no unnecessary cartesian products or full scans)"
+      - "Unit tests cover a node with no relationships, one-directional-only relationships, and multiple relationship types in both directions"
+      - "Integration test against a live Docker Neo4j instance (via neo4j-cli) verifies the query against real data, not just mocked driver responses"
+    completed_at: null
+
   - id: task-007
     title: "Wire markdown mode into readdir/getattr/read FUSE handlers"
     description: |
       Extend src/fuse/handlers.ts so that when mode.type is markdown,
       readdir/getattr/read dispatch to the new path parser and renderer:
-      root/label directory listing, per-node markdown rendering and
-      caching keyed by node elementId (reused between getattr size
-      computation and read), and EROFS for all write operations. Follow
-      the existing try-catch-wrapped callback pattern noted in AGENTS.md.
+      root/label directory listing, per-node markdown rendering (using the
+      single-query fetch from task-018) and caching keyed by node
+      elementId (reused between getattr size computation and read), and
+      EROFS for all write operations. Follow the existing
+      try-catch-wrapped callback pattern noted in AGENTS.md.
     status: pending
     dependencies:
       - task-004
       - task-005
       - task-006
+      - task-018
     acceptance_criteria:
       - "readdir on root lists one entry per rendered label plus index.md and log.md"
       - "getattr on a node's .md file reports size equal to the exact rendered byte length"
