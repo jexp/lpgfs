@@ -179,7 +179,7 @@ tasks:
       render; when set, only listed labels appear as directories, while
       links to nodes in excluded labels still render (as unresolved links
       per OKF's tolerance for broken links).
-    status: pending
+    status: completed
     dependencies:
       - task-007
     acceptance_criteria:
@@ -187,7 +187,7 @@ tasks:
       - "Omitting mode.markdown.labels renders every label found in the database"
       - "A relationship pointing to a node in an excluded label still renders as a normal Label/name link"
       - "Unit tests cover both the filtered and unfiltered configurations"
-    completed_at: null
+    completed_at: "2026-07-22T21:07:20Z"
 
   - id: task-009
     title: "Implement multi-label node handling (first-label-wins)"

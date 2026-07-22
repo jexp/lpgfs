@@ -2724,6 +2724,19 @@ describe('markdown mode', () => {
       });
     });
 
+    it('renders every label found in the database when mode.markdown.labels is unset', async () => {
+      const db = createMockDbMarkdown(['Character', 'Place', 'Creature']);
+      const ctx = createCtx(markdownConfig(), db);
+
+      const entries = await readdir('/', ctx);
+
+      expect(entries.map((e) => e.name).sort()).toEqual([
+        'Character',
+        'Creature',
+        'Place',
+      ]);
+    });
+
     it('rejects paths deeper than a node file with ENOENT', async () => {
       const db = createMockDbMarkdown(['Character']);
       const ctx = createCtx(markdownConfig(), db);
@@ -2834,6 +2847,62 @@ describe('markdown mode', () => {
 
       expect(partial.size).toBe(full.size);
       expect(partial.content).toBe(full.content.slice(0, 3));
+    });
+
+    it('getattr on a node under a label excluded by mode.markdown.labels throws ENOENT', async () => {
+      const db = createMockDbMarkdown(['Character', 'Place'], {
+        Place: [{ elementId: '4:a:0', properties: { name: 'ithaca' } }],
+      });
+      const ctx = createCtx(markdownConfig({ labels: ['Character'] }), db);
+
+      await expect(getattr('/Place/ithaca.md', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('read on a node under a label excluded by mode.markdown.labels throws ENOENT', async () => {
+      const db = createMockDbMarkdown(['Character', 'Place'], {
+        Place: [{ elementId: '4:a:0', properties: { name: 'ithaca' } }],
+      });
+      const ctx = createCtx(markdownConfig({ labels: ['Character'] }), db);
+
+      await expect(read('/Place/ithaca.md', ctx)).rejects.toMatchObject({
+        code: POSIX_ERRORS.ENOENT,
+      });
+    });
+
+    it('renders a link to a node in an excluded label as a normal Label/name link, not suppressed', async () => {
+      const db = createMockDbMarkdown(
+        ['Character', 'Place'],
+        { Character: [{ elementId: '4:a:0', properties: { name: 'odysseus' } }] },
+        {
+          '4:a:0': {
+            labels: ['Character'],
+            properties: { name: 'odysseus' },
+            outRows: [
+              {
+                relType: 'VISITED',
+                targetLabels: ['Place'],
+                targetElementId: '4:a:1',
+                targetProperties: { name: 'ithaca' },
+              },
+            ],
+          },
+        }
+      );
+      const config = markdownConfig({ labels: ['Character'] });
+      config.naming.overrides = {
+        ...config.naming.overrides,
+        nodes: {
+          ...config.naming.overrides?.nodes,
+          Place: { property: 'name' },
+        },
+      };
+      const ctx = createCtx(config, db);
+
+      const result = await read('/Character/odysseus.md', ctx);
+
+      expect(result.content).toContain('[[Place/ithaca]]');
     });
   });
 
