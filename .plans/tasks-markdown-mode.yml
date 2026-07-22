@@ -74,7 +74,6 @@ tasks:
       - "Parsing /index.md, /log.md, and /<Label>/index.md yields distinct generated-file PathContext variants"
       - "Paths deeper than /<Label>/<name>.md return ENOENT"
       - "Unit tests cover root, label, node file, both generated-file types, and invalid paths"
-    completed_at: null
 
   - id: task-005
     title: "Implement the pure markdown renderer for a single node"
@@ -97,7 +96,6 @@ tasks:
       - "Body renders bare for a single present text property and with ## headings for multiple"
       - "A node with no configured text properties present renders frontmatter-only with an empty body"
       - "Unit tests cover Neo4j Integer/Float/temporal/point property serialization, list properties, and incoming-link (in_<TYPE>) rendering when enabled"
-    completed_at: null
 
   - id: task-006
     title: "Implement title/timestamp/tags field-mapping resolver"
