@@ -371,7 +371,8 @@ tasks:
       container, pipes in import.cypher, mounts LPGFS in markdown mode
       against it, and diffs the mounted tree against
       test/fixtures/odyssey/, including generated index.md/log.md files.
-    status: pending
+    status: completed
+    completed_at: "2026-07-23T00:03:57Z"
     dependencies:
       - task-014
       - task-011

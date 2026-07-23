@@ -8,5 +8,16 @@ export default defineConfig({
     // that share one live Neo4j container, the src/dist duplicate runs
     // race each other's seed/cleanup and produce flaky failures.
     exclude: ['**/node_modules/**', '**/dist/**'],
+    // *.integration.test.ts files share one live Neo4j container across
+    // an entire test run (see integration.env / NEO4J_URI). Some scope
+    // their writes/cleanup by a marker property or randomized label
+    // prefix to tolerate concurrent siblings, but handlers.markdown.odyssey
+    // .integration.test.ts applies test/fixtures/odyssey/import.cypher
+    // verbatim, which starts with an unscoped `MATCH (n) DETACH DELETE n`
+    // — it needs exclusive access to the database for the duration of its
+    // run. Disabling cross-file parallelism removes the race entirely
+    // rather than relying on every integration suite remembering to scope
+    // itself.
+    fileParallelism: false,
   },
 });

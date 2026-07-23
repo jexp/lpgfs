@@ -604,6 +604,80 @@ stat /tmp/lpgfs-test/Person/alice/KNOWS/OUT/james
 
 ---
 
+## Test 24: Markdown Mode — Odyssey Fixture Mount and Diff
+
+The automated equivalent of this test lives in
+`src/fuse/handlers.markdown.odyssey.integration.test.ts`: it drives the same
+`readdir`/`getattr`/`read` handler functions directly against a live Neo4j
+(no FUSE mount) and diffs their output against `test/fixtures/odyssey/`
+byte-for-byte. Real OS-level FUSE mounting (macFUSE/libfuse) isn't available
+in every environment (see `daemon.test.ts`'s "macFUSE not found" handling
+and the Troubleshooting section above), so this manual procedure is the way
+to verify the *actual mounted filesystem* — including `readdir` listing
+`index.md`/`log.md` once task-019 wires that in — end-to-end.
+
+### 1. Start an ephemeral Neo4j via neo4j-cli
+
+```bash
+neo4j-cli docker create --name lpgfs-odyssey --ephemeral --edition community \
+  --env-out-file integration.env --wait --rw
+source integration.env  # or read NEO4J_URI/NEO4J_USERNAME/NEO4J_PASSWORD manually
+```
+
+### 2. Apply the Odyssey fixture graph
+
+```bash
+cypher-shell -a "$NEO4J_URI" -u "$NEO4J_USERNAME" -p "$NEO4J_PASSWORD" \
+  < test/fixtures/odyssey/import.cypher
+```
+
+### 3. Create a markdown-mode config matching the fixture
+
+Create `.lpgfs.odyssey.yaml` with the exact contents documented in
+`test/fixtures/odyssey/README.md` ("Assumed `.lpgfs.yaml` config" section).
+
+### 4. Mount in markdown mode
+
+```bash
+mkdir -p /tmp/lpgfs-odyssey
+npm run build && ./dist/cli/index.js mount /tmp/lpgfs-odyssey \
+  --db "$NEO4J_URI" --user "$NEO4J_USERNAME" --password "$NEO4J_PASSWORD" \
+  --config .lpgfs.odyssey.yaml --mode markdown --foreground --debug
+```
+
+### 5. Diff the mounted tree against the fixture
+
+In a separate terminal:
+
+```bash
+diff -r /tmp/lpgfs-odyssey test/fixtures/odyssey \
+  --exclude=README.md --exclude=import.cypher
+```
+
+**Expected:** No differences reported (once task-019 lands, `index.md` and
+`log.md` will also appear in `readdir` listings and participate in the
+diff; until then, verify those two files individually with `cat` against
+their fixture counterparts, since they aren't yet listed at the root or
+per-label directory level — only reachable by direct path).
+
+```bash
+cat /tmp/lpgfs-odyssey/index.md | diff - test/fixtures/odyssey/index.md
+cat /tmp/lpgfs-odyssey/log.md | diff - test/fixtures/odyssey/log.md
+for label in Character Place Creature Event; do
+  cat "/tmp/lpgfs-odyssey/$label/index.md" | diff - "test/fixtures/odyssey/$label/index.md"
+done
+```
+
+### 6. Clean up
+
+```bash
+./dist/cli/index.js unmount /tmp/lpgfs-odyssey
+neo4j-cli docker stop lpgfs-odyssey --rw
+rm -f integration.env .lpgfs.odyssey.yaml
+```
+
+---
+
 ## Summary Checklist
 
 | Test | Command | Pass/Fail |
