@@ -320,7 +320,7 @@ tasks:
       the renderer and generated-file logic, normalizes trailing
       whitespace/final newline, and asserts byte-for-byte equality against
       every fixture file including index.md and log.md.
-    status: pending
+    status: completed
     dependencies:
       - task-014
     acceptance_criteria:
@@ -328,7 +328,7 @@ tasks:
       - "Generated root index.md, per-label index.md files, and log.md fixtures are reproduced exactly"
       - "Test fails clearly (diff output) on any frontmatter key-order or content regression"
       - "Test runs as part of npm test with no external dependencies (no live Neo4j)"
-    completed_at: null
+    completed_at: "2026-07-23T02:10:00Z"
 
   - id: task-020
     title: "Build npx bulk-import CLI: mirror an Obsidian vault into the graph"
