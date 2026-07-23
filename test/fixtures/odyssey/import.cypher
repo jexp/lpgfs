@@ -45,7 +45,7 @@ CREATE (:Character {
   name: 'Telemachus',
   role: 'prince',
   lastUpdated: '2026-04-20T11:00:00Z',
-  summary: 'Son of Odysseus and Penelope, who comes of age during his father''s absence.'
+  summary: 'Son of Odysseus and Penelope, who comes of age during his father\'s absence.'
 });
 
 // Circe carries a literal `type` property, exercising task-013's clash
@@ -148,12 +148,12 @@ CREATE (:Event {
 CREATE (:Event {
   name: 'Nostos',
   created: '2026-04-20T09:00:00Z',
-  summary: 'Odysseus''s ten-year homeward journey from Troy to Ithaca.'
+  summary: 'Odysseus\'s ten-year homeward journey from Troy to Ithaca.'
 });
 
 CREATE (:Event {
   name: 'Nekyia',
-  summary: 'Odysseus''s descent into the underworld to consult the dead.'
+  summary: 'Odysseus\'s descent into the underworld to consult the dead.'
 });
 
 // ---------------------------------------------------------------------
