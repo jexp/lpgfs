@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "lpgfs": "dist/cli/index.js"
+    "lpgfs": "dist/cli/index.js",
+    "lpgfs-import-vault": "dist/cli/import-vault.js"
   },
   "scripts": {
     "build": "tsc",

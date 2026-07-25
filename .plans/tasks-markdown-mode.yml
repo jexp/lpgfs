@@ -348,7 +348,8 @@ tasks:
       index.md/log.md files are skipped. Writes use MERGE (idempotent,
       safe to re-run) and the tool supports --dry-run plus the same
       --db/--user/--password connection flags as `lpgfs mount`.
-    status: pending
+    status: completed
+    completed_at: "2026-07-23T00:50:17Z"
     dependencies:
       - task-006
       - task-014
