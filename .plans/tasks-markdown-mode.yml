@@ -396,7 +396,8 @@ tasks:
       mode sections. Also document the lpgfs-import-vault bulk-import CLI
       (task-020): usage, connection flags, --dry-run, idempotency, and the
       canonical-key round-trip limitation for title/timestamp/tags.
-    status: pending
+    status: completed
+    completed_at: 2026-07-23T02:36:00Z
     dependencies:
       - task-016
       - task-020

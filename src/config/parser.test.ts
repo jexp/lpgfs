@@ -2,9 +2,13 @@
  * Tests for LPGFS Config Parser
  */
 
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { ConfigParser, ConfigValidationError } from './parser.js';
 import { DEFAULT_CONFIG, DEFAULT_MARKDOWN_MODE_CONFIG } from '../types/index.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe('ConfigParser.parse', () => {
   it('returns defaults for empty content', () => {
@@ -292,5 +296,35 @@ describe('ConfigParser.applyModeOverride', () => {
     const original = structuredClone(config);
     ConfigParser.applyModeOverride(config, 'markdown');
     expect(config).toEqual(original);
+  });
+});
+
+describe('docs/examples/markdown-mode.lpgfs.yaml', () => {
+  it('parses successfully and matches the Odyssey fixture config', async () => {
+    const samplePath = join(
+      __dirname,
+      '../../docs/examples/markdown-mode.lpgfs.yaml'
+    );
+    const config = await ConfigParser.load(samplePath);
+
+    expect(config.mode.type).toBe('markdown');
+    expect(config.mode.markdown?.labels).toEqual([
+      'Character',
+      'Place',
+      'Creature',
+      'Event',
+    ]);
+    expect(config.mode.markdown?.linkStyle).toBe('wikilink');
+    expect(config.mode.markdown?.includeIncoming).toBe(false);
+    expect(config.mode.markdown?.textProperties).toEqual(
+      DEFAULT_MARKDOWN_MODE_CONFIG.textProperties
+    );
+    expect(config.mode.markdown?.fields).toEqual(
+      DEFAULT_MARKDOWN_MODE_CONFIG.fields
+    );
+    expect(config.naming.overrides?.nodes?.Character).toEqual({
+      property: 'name',
+    });
+    expect(config.collision?.strategy).toBe('suffix_elementId');
   });
 });
